@@ -1,0 +1,24 @@
+name: html_runner
+description: A powerful HTML Runner, which helps you create and group your HTML Files or Projects.
+version: 1.6.7+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  webview_flutter: ^4.4.2
+  shared_preferences: ^2.2.2
+  google_sign_in: ^6.1.6
+  path_provider: ^2.1.1
+  archive: ^3.3.7
+  permission_handler: ^11.0.1
+  fluttertoast: ^8.2.4
+  file_picker: ^6.1.1
+  image_picker: ^1.0.4
+  intl: ^0.18.1
+
+flutter:
+  uses-material-design: true
