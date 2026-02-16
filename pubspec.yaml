@@ -1,5 +1,5 @@
 name: html_runner
-description: A powerful HTML Runner, which helps you create and group your HTML Files or Projects.
+description: A powerful HTML Runner, which helps you create and group your HTML Files or Projects by importing them as .htmls and exporting them as .zips.
 version: 1.6.7+1
 publish_to: 'none'
 
@@ -9,6 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # The missing ingredient for your Update Button:
+  url_launcher: ^6.2.5 
+  
+  # Your existing ingredients:
   webview_flutter: ^4.4.2
   shared_preferences: ^2.2.2
   google_sign_in: ^6.1.6
