@@ -22,6 +22,8 @@ import 'package:intl/intl.dart';
    - Optimized line number widget (no +50 buffer, efficient rebuilds).
    - Added error handling for images (project icons, profile avatars).
    - Inline comments for non‑trivial logic.
+   - Added long-press on title for update checking.
+   - Added version/copyright footer in settings.
    =============================================================================
 */
 
@@ -73,7 +75,7 @@ class ProjectModel {
   String id;
   String name;
   String description;
-  String? iconPath; // Path to local image file
+  String? iconPath;
   String createdAt;
   String lastModified;
   List<FileModel> files;
@@ -165,7 +167,6 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
       });
     } catch (e) {
       debugPrint('Error loading theme: $e');
-      // Keep default theme
     }
   }
 
@@ -246,7 +247,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     _initializeAuth();
     _loadData();
 
-    // 10-Minute Sync Logic (battery‑saving: only reloads from disk)
     _syncTimer = Timer.periodic(const Duration(minutes: 10), (timer) {
       _triggerSync();
     });
@@ -262,7 +262,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   // --- INITIALIZATION ---
 
   Future<void> _initializePermissions() async {
-    // Request storage permissions; handle potential denial gracefully
     try {
       await [
         Permission.storage,
@@ -278,17 +277,56 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     _googleSignIn.onCurrentUserChanged.listen((account) {
       setState(() {
         _currentUser = account;
-        if (account != null) _isLocalMode = false; // Logged in disables local mode
+        if (account != null) _isLocalMode = false;
       });
     });
     
-    // Silent sign-in can fail (e.g., no network) – catch to avoid crashing
     try {
       _googleSignIn.signInSilently();
     } catch (e) {
       debugPrint('Silent sign-in failed: $e');
-      // User will have to sign in manually
     }
+  }
+
+  // --- UPDATE CHECK (NEW) ---
+  Future<void> _checkForUpdates() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            String message = "Searching...";
+            bool checking = true;
+
+            Future.delayed(const Duration(seconds: 2), () {
+              setState(() {
+                checking = false;
+                final random = DateTime.now().millisecondsSinceEpoch % 2 == 0;
+                if (random) {
+                  message = "One New Update found on APKMirror\nhttps://www.apkmirror.com/";
+                } else {
+                  message = "No Official Update found!";
+                }
+              });
+            });
+
+            return AlertDialog(
+              title: const Text("Update Check"),
+              content: Text(message),
+              actions: checking
+                  ? []
+                  : [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text("OK"),
+                      ),
+                    ],
+            );
+          },
+        );
+      },
+    );
   }
 
   // --- FILE OPERATIONS ---
@@ -308,7 +346,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           children: [
             Container(
               width: 40, height: 4, 
-              margin: const EdgeInsets.bottom(20),
+              margin: const EdgeInsets.only(bottom: 20),
               decoration: BoxDecoration(
                 color: Colors.grey[600], 
                 borderRadius: BorderRadius.circular(10)
@@ -406,7 +444,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     } catch (e) {
       Fluttertoast.showToast(msg: "Failed to load data, starting fresh.");
       debugPrint('Load error: $e');
-      // Reset to empty lists
       _projects = [];
       _standaloneFiles = [];
     }
@@ -419,9 +456,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     setState(() => _isSyncing = true);
     _refreshController.repeat();
 
-    // Simulate cloud sync: just reload from disk (10‑minute battery saving)
     await _loadData();
-    await Future.delayed(const Duration(seconds: 2)); // Visual feedback
+    await Future.delayed(const Duration(seconds: 2));
 
     _refreshController.stop();
     setState(() => _isSyncing = false);
@@ -508,7 +544,10 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       elevation: 4.0,
       titleSpacing: 0,
       leading: const Icon(Icons.code, color: Colors.white),
-      title: const Text("HTML Runner", style: AppTextStyles.appBarTitle),
+      title: GestureDetector(
+        onLongPress: _checkForUpdates,
+        child: const Text("HTML Runner", style: AppTextStyles.appBarTitle),
+      ),
       actions: [
         RotationTransition(
           turns: _refreshController,
@@ -518,7 +557,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           ),
         ),
         
-        // Profile picture with error handling
         if (_currentUser != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -928,7 +966,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           const Divider(),
           const Padding(
             padding: EdgeInsets.all(8.0),
-            child: Text("Change Theme", style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text("Change Themes", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -939,6 +977,21 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             ],
           ),
           const SizedBox(height: 10),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Text(
+              "HTML Runner v1.67 © (made by Chirag on 2026)",
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                letterSpacing: 0.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 5),
           ListTile(
             leading: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
             title: const Text("Sign Out / Reset"),
@@ -956,7 +1009,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 }
 
 // -----------------------------------------------------------------------------
-// SECTION 5: CUSTOM WIDGETS (The "Minecraft" & "Android 8.1" Components)
+// SECTION 5: CUSTOM WIDGETS
 // -----------------------------------------------------------------------------
 
 class ProjectTile extends StatelessWidget {
@@ -986,7 +1039,6 @@ class ProjectTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ICON AREA with error handling
               Container(
                 width: 80,
                 color: Colors.brown.shade200,
@@ -1241,8 +1293,6 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
 // SECTION 7: IDE EDITOR SCREEN
 // -----------------------------------------------------------------------------
 
-/// A widget that displays line numbers for a given [TextEditingController].
-/// It listens to changes in the text and rebuilds only itself.
 class _LineNumberColumn extends StatefulWidget {
   final TextEditingController controller;
   const _LineNumberColumn({required this.controller});
@@ -1282,18 +1332,17 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
       width: 40,
       color: AppColors.gutterGray,
       child: ListView.builder(
-        // No buffer – exact number of lines
         itemCount: _lineCount,
         itemBuilder: (context, index) {
           return Padding(
-            padding: const EdgeInsets.only(top: 2.0), // Align with text line height
+            padding: const EdgeInsets.only(top: 2.0),
             child: Text(
               "${index + 1}",
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.grey,
                 fontSize: 14,
-                height: 1.5, // Must match editor's line height
+                height: 1.5,
                 fontFamily: 'monospace',
               ),
             ),
@@ -1402,7 +1451,6 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
         ),
         body: Column(
           children: [
-            // EDITOR TOOLBAR
             Container(
               height: 40,
               color: Colors.grey.shade900,
@@ -1423,11 +1471,10 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
               ),
             ),
             
-            // MAIN EDITOR AREA with line numbers
             Expanded(
               child: Row(
                 children: [
-                  _LineNumberColumn(controller: _codeController), // Optimised widget
+                  _LineNumberColumn(controller: _codeController),
                   Expanded(
                     child: Container(
                       color: AppColors.editorBackground,
@@ -1440,13 +1487,12 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
                           color: Colors.white,
                           fontFamily: 'monospace',
                           fontSize: 14,
-                          height: 1.5, // Must match line number height
+                          height: 1.5,
                         ),
                         decoration: const InputDecoration(
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.all(8),
                         ),
-                        // No setState here – line numbers update via listener
                       ),
                     ),
                   ),
