@@ -234,6 +234,12 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   // Warning States for Auth Screen
   bool _showGoogleWarning = false;
   bool _showLocalWarning = false;
+  
+  // --- New Security State Variables ---
+  String _currentCaptchaTheme = "";
+  List<int> _selectedCaptchaIndices = [];
+  List<IconData> _captchaGridItems = [];
+  List<IconData> _correctThemeIcons = [];
 
   @override
   void initState() {
@@ -256,6 +262,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   void dispose() {
     _refreshController.dispose();
     _syncTimer?.cancel();
+    // If you add a controller for the CAPTCHA text field later, dispose it here
     super.dispose();
   }
 
@@ -981,7 +988,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: Text(
-              "HTML Runner v1.67 © (made by Chirag on 2026)",
+              "HTML Runner v1.6.7 © (made by Chirag on 2026)",
               style: TextStyle(
                 color: Colors.grey.shade600,
                 fontSize: 12,
@@ -995,16 +1002,158 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           ListTile(
             leading: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
             title: const Text("Sign Out / Reset"),
-            onTap: () async {
-              await _googleSignIn.signOut();
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
-              exit(0);
+            onTap: () {
+              Navigator.pop(context); // Closes the sidebar
+              _triggerSecurityVerification(); 
             },
           ),
         ],
       ),
     );
+  }
+    // --- START OF SECURITY GATE LOGIC ---
+
+  void _triggerSecurityVerification() {
+    if (_currentUser != null) {
+      _showChallengeDialog(
+        title: "Gmail Security Verification",
+        hint: "Enter the code shown in your security alert: 552-881",
+        correctCode: "552-881",
+      );
+    } else {
+      _startSecurityScan();
+    }
+  }
+
+  void _startSecurityScan() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        Future.delayed(const Duration(seconds: 2), () {
+          Navigator.pop(context);
+          _showMegaCaptcha();
+        });
+        return const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 20),
+              Text("Performing Security Analysis..."),
+              Text("Checking for automated behavior", style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showMegaCaptcha() {
+    Map<String, List<IconData>> themes = {
+      "Vehicles": [Icons.directions_car, Icons.pedal_bike, Icons.bus_alert, Icons.train],
+      "Nature": [Icons.local_florist, Icons.eco, Icons.landscape, Icons.wb_sunny],
+      "Technology": [Icons.laptop, Icons.smartphone, Icons.mouse, Icons.watch],
+    };
+    String randomTheme = (themes.keys.toList()..shuffle()).first;
+    List<IconData> correctIcons = themes[randomTheme]!;
+    List<IconData> allOtherIcons = themes.values.expand((v) => v).where((i) => !correctIcons.contains(i)).toList();
+    List<IconData> gridItems = ((correctIcons..shuffle()).take(3).toList() + (allOtherIcons..shuffle()).take(6).toList())..shuffle();
+    List<int> selectedIndices = [];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Container(
+            color: Colors.blue,
+            padding: const EdgeInsets.all(10),
+            child: Text("Select all squares with $randomTheme", style: const TextStyle(color: Colors.white, fontSize: 16)),
+          ),
+          content: SizedBox(
+            width: 300,
+            height: 300,
+            child: GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 4, mainAxisSpacing: 4),
+              itemCount: 9,
+              itemBuilder: (context, index) {
+                bool isSelected = selectedIndices.contains(index);
+                return InkWell(
+                  onTap: () => setState(() => isSelected ? selectedIndices.remove(index) : selectedIndices.add(index)),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: isSelected ? Colors.blue : Colors.grey, width: isSelected ? 3 : 1),
+                      color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.white,
+                    ),
+                    child: Icon(gridItems[index], size: 40, color: isSelected ? Colors.blue : Colors.black54),
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+            ElevatedButton(
+              onPressed: () {
+                bool success = selectedIndices.isNotEmpty && selectedIndices.every((idx) => correctIcons.contains(gridItems[idx]));
+                int totalCorrectInGrid = gridItems.where((i) => correctIcons.contains(i)).length;
+                if (success && selectedIndices.length == totalCorrectInGrid) {
+                  Navigator.pop(context);
+                  _handleSignOut(); 
+                  Fluttertoast.showToast(msg: "Identity Confirmed");
+                } else {
+                  Fluttertoast.showToast(msg: "Try again. Select ALL matching items.");
+                  Navigator.pop(context);
+                  _showMegaCaptcha();
+                }
+              },
+              child: const Text("VERIFY"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showChallengeDialog({required String title, required String hint, required String correctCode}) {
+    TextEditingController input = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(title, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(hint),
+            const SizedBox(height: 15),
+            TextField(controller: input, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: "Verification Code")),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          ElevatedButton(
+            onPressed: () {
+              if (input.text == correctCode) {
+                Navigator.pop(context);
+                _handleSignOut(); 
+              } else {
+                Fluttertoast.showToast(msg: "Incorrect code.");
+              }
+            },
+            child: const Text("VERIFY & WIPE"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleSignOut() async {
+    await _googleSignIn.signOut();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    exit(0);
   }
 }
 
