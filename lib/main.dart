@@ -13,7 +13,6 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-// For gesture recognizers in WebView (optional)
 import 'package:flutter/gestures.dart';
 
 /* =============================================================================
@@ -251,6 +250,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   Timer? _tapResetTimer;
   bool _isLogoSpinning = false;
   Color _logoColor = Colors.white;
+  
   @override
   void initState() {
     super.initState();
@@ -351,77 +351,75 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     );
   }
 
-   void _onLogoTap() {
-  setState(() {
-    _logoColor = AppColors.linkBlue; // Flash blue
-  });
-  
-  // Reset color after 100ms
-  Future.delayed(const Duration(milliseconds: 100), () {
-    if (mounted) setState(() => _logoColor = Colors.white);
-  });
+  void _onLogoTap() {
+    setState(() {
+      _logoColor = AppColors.linkBlue;
+    });
+    
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) setState(() => _logoColor = Colors.white);
+    });
 
-  _logoTapCount++;
-  
-  // Reset counter if too slow (2 seconds between taps)
-  _tapResetTimer?.cancel();
-  _tapResetTimer = Timer(const Duration(seconds: 2), () {
-    setState(() => _logoTapCount = 0);
-  });
-
-  // Easter egg triggered!
-  if (_logoTapCount >= 5) {
-    _triggerEasterEgg();
-    _logoTapCount = 0;
+    _logoTapCount++;
+    
     _tapResetTimer?.cancel();
+    _tapResetTimer = Timer(const Duration(seconds: 2), () {
+      setState(() => _logoTapCount = 0);
+    });
+
+    if (_logoTapCount >= 5) {
+      _triggerEasterEgg();
+      _logoTapCount = 0;
+      _tapResetTimer?.cancel();
+    }
   }
-}
 
-void _triggerEasterEgg() {
-  setState(() => _isLogoSpinning = true);
-  
-  _logoSpinController.repeat();
-  
-  Future.delayed(const Duration(seconds: 7), () {
-    _logoSpinController.stop();
-    setState(() => _isLogoSpinning = false);
-    _showBuildInfoDialog();
-  });
-}
+  void _triggerEasterEgg() {
+    setState(() => _isLogoSpinning = true);
+    
+    _logoSpinController.repeat();
+    
+    Future.delayed(const Duration(seconds: 7), () {
+      _logoSpinController.stop();
+      setState(() => _isLogoSpinning = false);
+      _showBuildInfoDialog();
+    });
+  }
 
-void _showBuildInfoDialog() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildInfoRow("📱", "App Name", "HTML Runner"),
-            _buildInfoRow("🔢", "Version", "1.6.7+1"),
-            _buildInfoRow("📅", "Release Date", "Feb 14, 2025"),
-            _buildInfoRow("⏱️", "Build Time", "2 hours"),
-            _buildInfoRow("📝", "Lines of Code", "1800+ lines"),
-            _buildInfoRow("🎨", "UI Style", "Android 4.2 Jellybean"),
-            _buildInfoRow("💚", "Framework", "Flutter/Dart"),
-            _buildInfoRow("🔧", "Build Tools", "Android SDK 35"),
-            _buildInfoRow("📦", "Package", "com.chirag.html_runner"),
-            _buildInfoRow("👨‍💻", "Developer", "Chirag Shylendra"),
-            _buildInfoRow("🐙", "GitHub", "@chirag7gaming"),
-            _buildInfoRow("⚖️", "License", "MIT License"),
-            _buildInfoRow("🎯", "Purpose", "Free HTML IDE"),
-            _buildInfoRow("💡", "Inspiration", "Black India Day"),
-            _buildInfoRow("🚀", "Features", "Projects, Editor, Sync"),
-            _buildInfoRow("🎮", "Easter Egg", "You found it! 🎉"),
-            const SizedBox(height: 16),
-            const Text(
-              "Made with 🇮🇳 and ❤️\nZero ads. Forever free.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
-            ),
-          ],
+  void _showBuildInfoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildInfoRow("📱", "App Name", "HTML Runner"),
+              _buildInfoRow("🔢", "Version", "1.6.7+1"),
+              _buildInfoRow("📅", "Release Date", "Feb 14, 2025"),
+              _buildInfoRow("⏱️", "Build Time", "2 hours"),
+              _buildInfoRow("📝", "Lines of Code", "1800+ lines"),
+              _buildInfoRow("🎨", "UI Style", "Android 4.2 Jellybean"),
+              _buildInfoRow("💚", "Framework", "Flutter/Dart"),
+              _buildInfoRow("🔧", "Build Tools", "Android SDK 35"),
+              _buildInfoRow("📦", "Package", "com.chirag.html_runner"),
+              _buildInfoRow("👨‍💻", "Developer", "Chirag Shylendra"),
+              _buildInfoRow("🐙", "GitHub", "@chirag7gaming"),
+              _buildInfoRow("⚖️", "License", "MIT License"),
+              _buildInfoRow("🎯", "Purpose", "Free HTML IDE"),
+              _buildInfoRow("💡", "Inspiration", "Black India Day"),
+              _buildInfoRow("🚀", "Features", "Projects, Editor, Sync"),
+              _buildInfoRow("🎮", "Easter Egg", "You found it! 🎉"),
+              const SizedBox(height: 16),
+              const Text(
+                "Made with 🇮🇳 and ❤️\nZero ads. Forever free.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -430,32 +428,31 @@ void _showBuildInfoDialog() {
           child: const Text("Close", style: TextStyle(color: AppColors.androidGreen)),
         ),
       ],
-    ),
-  );
-}
+    );
+  }
 
-Widget _buildInfoRow(String emoji, String label, String value) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4.0),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text("$emoji ", style: const TextStyle(fontSize: 16)),
-        Expanded(
-          child: RichText(
-            text: TextSpan(
-              style: const TextStyle(fontSize: 13, color: Colors.black87),
-              children: [
-                TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
-                TextSpan(text: value),
-              ],
+  Widget _buildInfoRow(String emoji, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("$emoji ", style: const TextStyle(fontSize: 16)),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+                children: [
+                  TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  TextSpan(text: value),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   // --- FILE OPERATIONS ---
 
@@ -672,12 +669,12 @@ Widget _buildInfoRow(String emoji, String label, String value) {
       elevation: 4.0,
       titleSpacing: 0,
       leading: GestureDetector(
-      onTap: _onLogoTap,
-      child: RotationTransition(
-      turns: _isLogoSpinning ? _logoSpinController : const AlwaysStoppedAnimation(0),
-      child: Icon(Icons.code, color: _logoColor),
-    ),
-  ),
+        onTap: _onLogoTap,
+        child: RotationTransition(
+          turns: _isLogoSpinning ? _logoSpinController : const AlwaysStoppedAnimation(0),
+          child: Icon(Icons.code, color: _logoColor),
+        ),
+      ),
       title: GestureDetector(
         onLongPress: _checkForUpdates,
         child: const Text("HTML Runner", style: AppTextStyles.appBarTitle),
@@ -1130,7 +1127,7 @@ Widget _buildInfoRow(String emoji, String label, String value) {
             leading: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
             title: const Text("Sign Out / Reset"),
             onTap: () {
-              Navigator.pop(context); // Closes the sidebar
+              Navigator.pop(context);
               _triggerSecurityVerification(); 
             },
           ),
@@ -1138,7 +1135,8 @@ Widget _buildInfoRow(String emoji, String label, String value) {
       ),
     );
   }
-    // --- START OF SECURITY GATE LOGIC ---
+  
+  // --- START OF SECURITY GATE LOGIC ---
 
   void _triggerSecurityVerification() {
     if (_currentUser != null) {
@@ -1436,6 +1434,13 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
     }
   }
 
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickIcon() async {
     try {
       final XFile? image = await ImagePicker().pickImage(source: ImageSource.gallery);
@@ -1571,295 +1576,6 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
 
 class _LineNumberColumn extends StatefulWidget {
   final TextEditingController controller;
-  final ScrollController scrollController; // NEW
-
-  const _LineNumberColumn({
-    required this.controller,
-    required this.scrollController, // NEW
-  });
-
-  @override
-  __LineNumberColumnState createState() => __LineNumberColumnState();
-}
-
-class __LineNumberColumnState extends State<_LineNumberColumn> {
-  int _lineCount = 1;
-
-  @override
-  void initState() {
-    super.initState();
-    _updateLineCount();
-    widget.controller.addListener(_updateLineCount);
-  }
-
-  void _updateLineCount() {
-    final lines = widget.controller.text.split('\n').length;
-    if (_lineCount != lines) {
-      setState(() {
-        _lineCount = lines;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_updateLineCount);
-    super.dispose();
-  }
-
-@override
-Widget build(BuildContext context) {
-  return Container(
-    width: 40,
-    color: AppColors.gutterGray,
-    child: ListView.builder(
-      controller: widget.scrollController,
-      physics: const NeverScrollableScrollPhysics(), // CRITICAL: Prevent independent scrolling
-      itemCount: _lineCount,
-      itemExtent: 21.0, // CRITICAL: Match TextField line height (14px * 1.5 = 21px)
-      itemBuilder: (context, index) {
-        return Text(
-          "${index + 1}",
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.grey,
-            fontSize: 14,
-            height: 1.5,
-            fontFamily: 'monospace',
-          ),
-        );
-      },
-    ),
-  );
-}
-
-class IDEEditorScreen extends StatefulWidget {
-  final FileModel? file;
-  final Function(String, String) onSave;
-
-  const IDEEditorScreen({this.file, required this.onSave});
-
-  @override
-  _IDEEditorScreenState createState() => _IDEEditorScreenState();
-}
-
-class _IDEEditorScreenState extends State<IDEEditorScreen> {
-  late TextEditingController _nameController;
-  late TextEditingController _codeController;
-  final UndoHistoryController _undoController = UndoHistoryController();
-  final ScrollController _scrollController = ScrollController(); // NEW
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.file?.name ?? "index.html");
-    _codeController = TextEditingController(
-      text: widget.file?.content ?? "<html>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>",
-    );
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose(); // DON'T FORGET TO DISPOSE
-    super.dispose();
-  }
-
-  Future<bool> _onWillPop() async {
-    bool shouldExit = false;
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("⚠️ Warning⚠️"),
-        content: const Text("If you exit now without saving it, Your changes will not be saved"),
-        actions: [
-          TextButton(
-            onPressed: () {
-              shouldExit = true;
-              Navigator.pop(context);
-            },
-            child: const Text("Exit anyway", style: TextStyle(color: AppColors.errorRed)),
-          ),
-          TextButton(
-            onPressed: () {
-              widget.onSave(_nameController.text, _codeController.text);
-              shouldExit = true;
-              Navigator.pop(context);
-            },
-            child: const Text("Save & Exit", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.androidGreen)),
-          ),
-        ],
-      ),
-    );
-    return shouldExit;
-  }
-
-  void _insertTag(String tag) {
-    final text = _codeController.text;
-    final selection = _codeController.selection;
-    final newText = text.replaceRange(selection.start, selection.end, tag);
-    _codeController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: selection.start + tag.length),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _onWillPop,
-      child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: AppColors.nostalgiaBlack,
-          title: TextField(
-            controller: _nameController,
-            style: const TextStyle(color: Colors.white, fontSize: 18),
-            decoration: const InputDecoration(border: InputBorder.none, hintText: "Filename", hintStyle: TextStyle(color: Colors.grey)),
-          ),
-          actions: [
-            IconButton(icon: const Icon(Icons.undo), onPressed: () => _undoController.undo()),
-            IconButton(icon: const Icon(Icons.redo), onPressed: () => _undoController.redo()),
-            IconButton(
-              icon: const Icon(Icons.save, color: AppColors.androidGreen),
-              onPressed: () => widget.onSave(_nameController.text, _codeController.text),
-            ),
-            IconButton(
-              icon: const Icon(Icons.play_arrow, color: Colors.orange),
-              onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => WebRunnerScreen(htmlContent: _codeController.text)));
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
-              onPressed: () async {
-                if (await _onWillPop()) Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            Container(
-              height: 40,
-              color: Colors.grey.shade900,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _toolbarBtn("Copy", () => Clipboard.setData(ClipboardData(text: _codeController.text))),
-                  _toolbarBtn("Paste", () async {
-                    final data = await Clipboard.getData('text/plain');
-                    if (data != null) _insertTag(data.text!);
-                  }),
-                  _toolbarBtn("Select All", () => _codeController.selection = TextSelection(baseOffset: 0, extentOffset: _codeController.text.length)),
-                  _toolbarBtn("<div>", () => _insertTag("<div></div>")),
-                  _toolbarBtn("<h1>", () => _insertTag("<h1></h1>")),
-                  _toolbarBtn("<p>", () => _insertTag("<p></p>")),
-                  _toolbarBtn("style", () => _insertTag("<style></style>")),
-                ],
-              ),
-            ),
-            
-            Expanded(
-              child: Row(
-                children: [
-                  _LineNumberColumn(
-                    controller: _codeController,
-                    scrollController: _scrollController, // PASS SHARED CONTROLLER
-                  ),
-                  Expanded(
-                    child: Container(
-                      color: AppColors.editorBackground,
-                      child: TextField(
-                        controller: _codeController,
-                        scrollController: _scrollController, // ASSIGN HERE
-                        undoController: _undoController,
-                        maxLines: null,
-                        expands: true,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'monospace',
-                          fontSize: 14,
-                          height: 1.5,
-                        ),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.all(8),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _toolbarBtn(String label, VoidCallback onTap) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4.0),
-      child: TextButton(
-        onPressed: onTap,
-        child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
-      ),
-    );
-  }
-}
-
-// -----------------------------------------------------------------------------
-// SECTION 8: RUNNER SCREEN & PROJECT DETAIL (FIXED: WEBVIEW TOUCH)
-// -----------------------------------------------------------------------------
-
-class WebRunnerScreen extends StatefulWidget {
-  final String htmlContent;
-  const WebRunnerScreen({required this.htmlContent});
-
-  @override
-  State<WebRunnerScreen> createState() => _WebRunnerScreenState();
-}
-
-class _WebRunnerScreenState extends State<WebRunnerScreen> {
-  late final WebViewController controller;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFFFFFFFF))
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            controller.runJavaScript('''
-              if (!document.querySelector('meta[name="viewport"]')) {
-                const meta = document.createElement('meta');
-                meta.name = 'viewport';
-                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes';
-                document.head.appendChild(meta);
-              }
-            ''');
-          },
-        ),
-      )
-      ..loadHtmlString(widget.htmlContent);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Runner Preview"),
-        backgroundColor: Colors.black,
-      ),
-      body: WebViewWidget(controller: controller),
-    );
-// -----------------------------------------------------------------------------
-// SECTION 7: IDE EDITOR SCREEN (FIXED: LINE NUMBERS SYNC)
-// -----------------------------------------------------------------------------
-
-class _LineNumberColumn extends StatefulWidget {
-  final TextEditingController controller;
   final ScrollController scrollController;
 
   const _LineNumberColumn({
@@ -1923,7 +1639,6 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
   }
 }
 
-// ========== IMPORTANT: THIS CLASS MUST BE OUTSIDE THE PREVIOUS ONE ==========
 class IDEEditorScreen extends StatefulWidget {
   final FileModel? file;
   final Function(String, String) onSave;
@@ -1952,6 +1667,8 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _nameController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
@@ -1999,7 +1716,11 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 4.0),
       child: TextButton(
         onPressed: onTap,
-        child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          minimumSize: const Size(50, 30),
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 12)),
       ),
     );
   }
@@ -2014,11 +1735,21 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
           title: TextField(
             controller: _nameController,
             style: const TextStyle(color: Colors.white, fontSize: 18),
-            decoration: const InputDecoration(border: InputBorder.none, hintText: "Filename", hintStyle: TextStyle(color: Colors.grey)),
+            decoration: const InputDecoration(
+              border: InputBorder.none, 
+              hintText: "Filename", 
+              hintStyle: TextStyle(color: Colors.grey)
+            ),
           ),
           actions: [
-            IconButton(icon: const Icon(Icons.undo), onPressed: () => _undoController.undo()),
-            IconButton(icon: const Icon(Icons.redo), onPressed: () => _undoController.redo()),
+            IconButton(
+              icon: const Icon(Icons.undo), 
+              onPressed: () => _undoController.undo()
+            ),
+            IconButton(
+              icon: const Icon(Icons.redo), 
+              onPressed: () => _undoController.redo()
+            ),
             IconButton(
               icon: const Icon(Icons.save, color: AppColors.androidGreen),
               onPressed: () => widget.onSave(_nameController.text, _codeController.text),
@@ -2026,7 +1757,12 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
             IconButton(
               icon: const Icon(Icons.play_arrow, color: Colors.orange),
               onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => WebRunnerScreen(htmlContent: _codeController.text)));
+                Navigator.push(
+                  context, 
+                  MaterialPageRoute(
+                    builder: (_) => WebRunnerScreen(htmlContent: _codeController.text)
+                  )
+                );
               },
             ),
             IconButton(
@@ -2050,7 +1786,10 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
                     final data = await Clipboard.getData('text/plain');
                     if (data != null) _insertTag(data.text!);
                   }),
-                  _toolbarBtn("Select All", () => _codeController.selection = TextSelection(baseOffset: 0, extentOffset: _codeController.text.length)),
+                  _toolbarBtn("Select All", () => _codeController.selection = TextSelection(
+                    baseOffset: 0, 
+                    extentOffset: _codeController.text.length
+                  )),
                   _toolbarBtn("<div>", () => _insertTag("<div></div>")),
                   _toolbarBtn("<h1>", () => _insertTag("<h1></h1>")),
                   _toolbarBtn("<p>", () => _insertTag("<p></p>")),
@@ -2174,7 +1913,8 @@ class ProjectDetailScreen extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 60, height: 60,
+                width: 60, 
+                height: 60,
                 color: Colors.grey.shade300,
                 child: project.iconPath != null
                     ? Image.file(
@@ -2203,7 +1943,14 @@ class ProjectDetailScreen extends StatelessWidget {
             onTap: onAddFile,
             child: const Padding(
               padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text("+ Add New File to Project", style: TextStyle(color: AppColors.linkBlue, fontWeight: FontWeight.bold, fontSize: 18)),
+              child: Text(
+                "+ Add New File to Project", 
+                style: TextStyle(
+                  color: AppColors.linkBlue, 
+                  fontWeight: FontWeight.bold, 
+                  fontSize: 18
+                ),
+              ),
             ),
           ),
           
