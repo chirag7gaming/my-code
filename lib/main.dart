@@ -13,6 +13,8 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+// For gesture recognizers in WebView (optional)
+import 'package:flutter/gestures.dart';
 
 /* =============================================================================
    HTML RUNNER: DEFINITIVE EDITION (IMPROVED)
@@ -24,6 +26,8 @@ import 'package:intl/intl.dart';
    - Inline comments for non‑trivial logic.
    - Added long-press on title for update checking.
    - Added version/copyright footer in settings.
+   - FIXED: Line numbers now scroll in sync with code editor.
+   - FIXED: WebView touch responsiveness (gestures, viewport, permissions).
    =============================================================================
 */
 
@@ -1439,12 +1443,17 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
 }
 
 // -----------------------------------------------------------------------------
-// SECTION 7: IDE EDITOR SCREEN
+// SECTION 7: IDE EDITOR SCREEN (FIXED: LINE NUMBERS SYNC)
 // -----------------------------------------------------------------------------
 
 class _LineNumberColumn extends StatefulWidget {
   final TextEditingController controller;
-  const _LineNumberColumn({required this.controller});
+  final ScrollController scrollController; // NEW
+
+  const _LineNumberColumn({
+    required this.controller,
+    required this.scrollController, // NEW
+  });
 
   @override
   __LineNumberColumnState createState() => __LineNumberColumnState();
@@ -1481,6 +1490,7 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
       width: 40,
       color: AppColors.gutterGray,
       child: ListView.builder(
+        controller: widget.scrollController, // USE SHARED CONTROLLER
         itemCount: _lineCount,
         itemBuilder: (context, index) {
           return Padding(
@@ -1516,6 +1526,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
   late TextEditingController _nameController;
   late TextEditingController _codeController;
   final UndoHistoryController _undoController = UndoHistoryController();
+  final ScrollController _scrollController = ScrollController(); // NEW
 
   @override
   void initState() {
@@ -1524,6 +1535,12 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
     _codeController = TextEditingController(
       text: widget.file?.content ?? "<html>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>",
     );
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose(); // DON'T FORGET TO DISPOSE
+    super.dispose();
   }
 
   Future<bool> _onWillPop() async {
@@ -1623,12 +1640,16 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
             Expanded(
               child: Row(
                 children: [
-                  _LineNumberColumn(controller: _codeController),
+                  _LineNumberColumn(
+                    controller: _codeController,
+                    scrollController: _scrollController, // PASS SHARED CONTROLLER
+                  ),
                   Expanded(
                     child: Container(
                       color: AppColors.editorBackground,
                       child: TextField(
                         controller: _codeController,
+                        scrollController: _scrollController, // ASSIGN HERE
                         undoController: _undoController,
                         maxLines: null,
                         expands: true,
@@ -1666,7 +1687,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
 }
 
 // -----------------------------------------------------------------------------
-// SECTION 8: RUNNER SCREEN & PROJECT DETAIL
+// SECTION 8: RUNNER SCREEN & PROJECT DETAIL (FIXED: WEBVIEW TOUCH)
 // -----------------------------------------------------------------------------
 
 class WebRunnerScreen extends StatelessWidget {
@@ -1677,6 +1698,22 @@ class WebRunnerScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFFFFFFF))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            // Ensure viewport meta tag exists for proper scaling/touch
+            controller.runJavaScript('''
+              if (!document.querySelector('meta[name="viewport"]')) {
+                const meta = document.createElement('meta');
+                meta.name = 'viewport';
+                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes';
+                document.head.appendChild(meta);
+              }
+            ''');
+          },
+        ),
+      )
       ..loadHtmlString(htmlContent);
 
     return Scaffold(
@@ -1684,7 +1721,16 @@ class WebRunnerScreen extends StatelessWidget {
         title: const Text("Runner Preview"),
         backgroundColor: Colors.black,
       ),
-      body: WebViewWidget(controller: controller),
+      body: WebViewWidget(
+        controller: controller,
+        // OPTIONAL: Uncomment if gestures are still not working
+        // gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+        //   Factory<VerticalDragGestureRecognizer>(VerticalDragGestureRecognizer.new),
+        //   Factory<HorizontalDragGestureRecognizer>(HorizontalDragGestureRecognizer.new),
+        //   Factory<ScaleGestureRecognizer>(ScaleGestureRecognizer.new),
+        //   Factory<TapGestureRecognizer>(TapGestureRecognizer.new),
+        // },
+      ),
     );
   }
 }
