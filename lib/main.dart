@@ -1690,19 +1690,26 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
 // SECTION 8: RUNNER SCREEN & PROJECT DETAIL (FIXED: WEBVIEW TOUCH)
 // -----------------------------------------------------------------------------
 
-class WebRunnerScreen extends StatelessWidget {
+class WebRunnerScreen extends StatefulWidget {
   final String htmlContent;
   const WebRunnerScreen({required this.htmlContent});
 
   @override
-  Widget build(BuildContext context) {
-    final controller = WebViewController()
+  State<WebRunnerScreen> createState() => _WebRunnerScreenState();
+}
+
+class _WebRunnerScreenState extends State<WebRunnerScreen> {
+  late final WebViewController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            // Ensure viewport meta tag exists for proper scaling/touch
             controller.runJavaScript('''
               if (!document.querySelector('meta[name="viewport"]')) {
                 const meta = document.createElement('meta');
@@ -1714,23 +1721,17 @@ class WebRunnerScreen extends StatelessWidget {
           },
         ),
       )
-      ..loadHtmlString(htmlContent);
+      ..loadHtmlString(widget.htmlContent);
+  }
 
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Runner Preview"),
         backgroundColor: Colors.black,
       ),
-      body: WebViewWidget(
-        controller: controller,
-        // OPTIONAL: Uncomment if gestures are still not working
-        // gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
-        //   Factory<VerticalDragGestureRecognizer>(VerticalDragGestureRecognizer.new),
-        //   Factory<HorizontalDragGestureRecognizer>(HorizontalDragGestureRecognizer.new),
-        //   Factory<ScaleGestureRecognizer>(ScaleGestureRecognizer.new),
-        //   Factory<TapGestureRecognizer>(TapGestureRecognizer.new),
-        // },
-      ),
+      body: WebViewWidget(controller: controller),
     );
   }
 }
