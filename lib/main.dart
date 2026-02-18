@@ -1854,6 +1854,297 @@ class _WebRunnerScreenState extends State<WebRunnerScreen> {
       ),
       body: WebViewWidget(controller: controller),
     );
+// -----------------------------------------------------------------------------
+// SECTION 7: IDE EDITOR SCREEN (FIXED: LINE NUMBERS SYNC)
+// -----------------------------------------------------------------------------
+
+class _LineNumberColumn extends StatefulWidget {
+  final TextEditingController controller;
+  final ScrollController scrollController;
+
+  const _LineNumberColumn({
+    required this.controller,
+    required this.scrollController,
+  });
+
+  @override
+  __LineNumberColumnState createState() => __LineNumberColumnState();
+}
+
+class __LineNumberColumnState extends State<_LineNumberColumn> {
+  int _lineCount = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateLineCount();
+    widget.controller.addListener(_updateLineCount);
+  }
+
+  void _updateLineCount() {
+    final lines = widget.controller.text.split('\n').length;
+    if (_lineCount != lines) {
+      setState(() {
+        _lineCount = lines;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_updateLineCount);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      color: AppColors.gutterGray,
+      child: ListView.builder(
+        controller: widget.scrollController,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: _lineCount,
+        itemExtent: 21.0,
+        itemBuilder: (context, index) {
+          return Text(
+            "${index + 1}",
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+              height: 1.5,
+              fontFamily: 'monospace',
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ========== IMPORTANT: THIS CLASS MUST BE OUTSIDE THE PREVIOUS ONE ==========
+class IDEEditorScreen extends StatefulWidget {
+  final FileModel? file;
+  final Function(String, String) onSave;
+
+  const IDEEditorScreen({this.file, required this.onSave});
+
+  @override
+  _IDEEditorScreenState createState() => _IDEEditorScreenState();
+}
+
+class _IDEEditorScreenState extends State<IDEEditorScreen> {
+  late TextEditingController _nameController;
+  late TextEditingController _codeController;
+  final UndoHistoryController _undoController = UndoHistoryController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.file?.name ?? "index.html");
+    _codeController = TextEditingController(
+      text: widget.file?.content ?? "<html>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>",
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<bool> _onWillPop() async {
+    bool shouldExit = false;
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("⚠️ Warning⚠️"),
+        content: const Text("If you exit now without saving it, Your changes will not be saved"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              shouldExit = true;
+              Navigator.pop(context);
+            },
+            child: const Text("Exit anyway", style: TextStyle(color: AppColors.errorRed)),
+          ),
+          TextButton(
+            onPressed: () {
+              widget.onSave(_nameController.text, _codeController.text);
+              shouldExit = true;
+              Navigator.pop(context);
+            },
+            child: const Text("Save & Exit", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.androidGreen)),
+          ),
+        ],
+      ),
+    );
+    return shouldExit;
+  }
+
+  void _insertTag(String tag) {
+    final text = _codeController.text;
+    final selection = _codeController.selection;
+    final newText = text.replaceRange(selection.start, selection.end, tag);
+    _codeController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: selection.start + tag.length),
+    );
+  }
+
+  Widget _toolbarBtn(String label, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      child: TextButton(
+        onPressed: onTap,
+        child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: AppColors.nostalgiaBlack,
+          title: TextField(
+            controller: _nameController,
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+            decoration: const InputDecoration(border: InputBorder.none, hintText: "Filename", hintStyle: TextStyle(color: Colors.grey)),
+          ),
+          actions: [
+            IconButton(icon: const Icon(Icons.undo), onPressed: () => _undoController.undo()),
+            IconButton(icon: const Icon(Icons.redo), onPressed: () => _undoController.redo()),
+            IconButton(
+              icon: const Icon(Icons.save, color: AppColors.androidGreen),
+              onPressed: () => widget.onSave(_nameController.text, _codeController.text),
+            ),
+            IconButton(
+              icon: const Icon(Icons.play_arrow, color: Colors.orange),
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => WebRunnerScreen(htmlContent: _codeController.text)));
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
+              onPressed: () async {
+                if (await _onWillPop()) Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            Container(
+              height: 40,
+              color: Colors.grey.shade900,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _toolbarBtn("Copy", () => Clipboard.setData(ClipboardData(text: _codeController.text))),
+                  _toolbarBtn("Paste", () async {
+                    final data = await Clipboard.getData('text/plain');
+                    if (data != null) _insertTag(data.text!);
+                  }),
+                  _toolbarBtn("Select All", () => _codeController.selection = TextSelection(baseOffset: 0, extentOffset: _codeController.text.length)),
+                  _toolbarBtn("<div>", () => _insertTag("<div></div>")),
+                  _toolbarBtn("<h1>", () => _insertTag("<h1></h1>")),
+                  _toolbarBtn("<p>", () => _insertTag("<p></p>")),
+                  _toolbarBtn("style", () => _insertTag("<style></style>")),
+                ],
+              ),
+            ),
+            
+            Expanded(
+              child: Row(
+                children: [
+                  _LineNumberColumn(
+                    controller: _codeController,
+                    scrollController: _scrollController,
+                  ),
+                  Expanded(
+                    child: Container(
+                      color: AppColors.editorBackground,
+                      child: TextField(
+                        controller: _codeController,
+                        scrollController: _scrollController,
+                        undoController: _undoController,
+                        maxLines: null,
+                        expands: true,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'monospace',
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.all(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// SECTION 8: RUNNER SCREEN & PROJECT DETAIL
+// -----------------------------------------------------------------------------
+
+class WebRunnerScreen extends StatefulWidget {
+  final String htmlContent;
+  const WebRunnerScreen({required this.htmlContent});
+
+  @override
+  State<WebRunnerScreen> createState() => _WebRunnerScreenState();
+}
+
+class _WebRunnerScreenState extends State<WebRunnerScreen> {
+  late final WebViewController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFFFFFFF))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            controller.runJavaScript('''
+              if (!document.querySelector('meta[name="viewport"]')) {
+                const meta = document.createElement('meta');
+                meta.name = 'viewport';
+                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes';
+                document.head.appendChild(meta);
+              }
+            ''');
+          },
+        ),
+      )
+      ..loadHtmlString(widget.htmlContent);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Runner Preview"),
+        backgroundColor: Colors.black,
+      ),
+      body: WebViewWidget(controller: controller),
+    );
   }
 }
 
