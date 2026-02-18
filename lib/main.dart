@@ -1484,32 +1484,30 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      color: AppColors.gutterGray,
-      child: ListView.builder(
-        controller: widget.scrollController, // USE SHARED CONTROLLER
-        itemCount: _lineCount,
-        itemBuilder: (context, index) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 2.0),
-            child: Text(
-              "${index + 1}",
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 14,
-                height: 1.5,
-                fontFamily: 'monospace',
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
+@override
+Widget build(BuildContext context) {
+  return Container(
+    width: 40,
+    color: AppColors.gutterGray,
+    child: ListView.builder(
+      controller: widget.scrollController,
+      physics: const NeverScrollableScrollPhysics(), // CRITICAL: Prevent independent scrolling
+      itemCount: _lineCount,
+      itemExtent: 21.0, // CRITICAL: Match TextField line height (14px * 1.5 = 21px)
+      itemBuilder: (context, index) {
+        return Text(
+          "${index + 1}",
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 14,
+            height: 1.5,
+            fontFamily: 'monospace',
+          ),
+        );
+      },
+    ),
+  );
 }
 
 class IDEEditorScreen extends StatefulWidget {
