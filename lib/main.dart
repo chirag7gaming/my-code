@@ -233,6 +233,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   // Animation & Timers
   late AnimationController _refreshController;
+  late AnimationController _logoSpinController;
   Timer? _syncTimer;
 
   // Warning States for Auth Screen
@@ -244,7 +245,12 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   List<int> _selectedCaptchaIndices = [];
   List<IconData> _captchaGridItems = [];
   List<IconData> _correctThemeIcons = [];
-
+   
+  // --- Easter Egg State ---
+  int _logoTapCount = 0;
+  Timer? _tapResetTimer;
+  bool _isLogoSpinning = false;
+  Color _logoColor = Colors.white;
   @override
   void initState() {
     super.initState();
@@ -252,7 +258,11 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       vsync: this,
       duration: const Duration(seconds: 2),
     );
-    
+    _logoSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 7),
+    );
+
     _initializePermissions();
     _initializeAuth();
     _loadData();
@@ -266,7 +276,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   void dispose() {
     _refreshController.dispose();
     _syncTimer?.cancel();
-    // If you add a controller for the CAPTCHA text field later, dispose it here
+    _logoSpinController.dispose();
+    _tapResetTimer?.cancel();
     super.dispose();
   }
 
@@ -339,6 +350,112 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       },
     );
   }
+
+   void _onLogoTap() {
+  setState(() {
+    _logoColor = AppColors.linkBlue; // Flash blue
+  });
+  
+  // Reset color after 100ms
+  Future.delayed(const Duration(milliseconds: 100), () {
+    if (mounted) setState(() => _logoColor = Colors.white);
+  });
+
+  _logoTapCount++;
+  
+  // Reset counter if too slow (2 seconds between taps)
+  _tapResetTimer?.cancel();
+  _tapResetTimer = Timer(const Duration(seconds: 2), () {
+    setState(() => _logoTapCount = 0);
+  });
+
+  // Easter egg triggered!
+  if (_logoTapCount >= 5) {
+    _triggerEasterEgg();
+    _logoTapCount = 0;
+    _tapResetTimer?.cancel();
+  }
+}
+
+void _triggerEasterEgg() {
+  setState(() => _isLogoSpinning = true);
+  
+  _logoSpinController.repeat();
+  
+  Future.delayed(const Duration(seconds: 7), () {
+    _logoSpinController.stop();
+    setState(() => _isLogoSpinning = false);
+    _showBuildInfoDialog();
+  });
+}
+
+void _showBuildInfoDialog() {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildInfoRow("📱", "App Name", "HTML Runner"),
+            _buildInfoRow("🔢", "Version", "1.6.7+1"),
+            _buildInfoRow("📅", "Release Date", "Feb 14, 2025"),
+            _buildInfoRow("⏱️", "Build Time", "2 hours"),
+            _buildInfoRow("📝", "Lines of Code", "1800+ lines"),
+            _buildInfoRow("🎨", "UI Style", "Android 4.2 Jellybean"),
+            _buildInfoRow("💚", "Framework", "Flutter/Dart"),
+            _buildInfoRow("🔧", "Build Tools", "Android SDK 35"),
+            _buildInfoRow("📦", "Package", "com.chirag.html_runner"),
+            _buildInfoRow("👨‍💻", "Developer", "Chirag Shylendra"),
+            _buildInfoRow("🐙", "GitHub", "@chirag7gaming"),
+            _buildInfoRow("⚖️", "License", "MIT License"),
+            _buildInfoRow("🎯", "Purpose", "Free HTML IDE"),
+            _buildInfoRow("💡", "Inspiration", "Black India Day"),
+            _buildInfoRow("🚀", "Features", "Projects, Editor, Sync"),
+            _buildInfoRow("🎮", "Easter Egg", "You found it! 🎉"),
+            const SizedBox(height: 16),
+            const Text(
+              "Made with 🇮🇳 and ❤️\nZero ads. Forever free.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Close", style: TextStyle(color: AppColors.androidGreen)),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildInfoRow(String emoji, String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4.0),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("$emoji ", style: const TextStyle(fontSize: 16)),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+              children: [
+                TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   // --- FILE OPERATIONS ---
 
@@ -554,7 +671,13 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       backgroundColor: Colors.black,
       elevation: 4.0,
       titleSpacing: 0,
-      leading: const Icon(Icons.code, color: Colors.white),
+      leading: GestureDetector(
+      onTap: _onLogoTap,
+      child: RotationTransition(
+      turns: _isLogoSpinning ? _logoSpinController : const AlwaysStoppedAnimation(0),
+      child: Icon(Icons.code, color: _logoColor),
+    ),
+  ),
       title: GestureDetector(
         onLongPress: _checkForUpdates,
         child: const Text("HTML Runner", style: AppTextStyles.appBarTitle),
