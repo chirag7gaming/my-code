@@ -386,40 +386,70 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     });
   }
 
-  void _showBuildInfoDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildInfoRow("📱", "App Name", "HTML Runner"),
-              _buildInfoRow("🔢", "Version", "1.6.7+1"),
-              _buildInfoRow("📅", "Release Date", "Feb 20, 2025"),
-              _buildInfoRow("⏱️", "Build Time", "2 hours"),
-              _buildInfoRow("📝", "Lines of Code", "1970 lines"),
-              _buildInfoRow("🎨", "UI Style", "Android 4.2 Jellybean"),
-              _buildInfoRow("💚", "Framework", "Flutter/Dart"),
-              _buildInfoRow("🔧", "Build Tools", "Android SDK 35"),
-              _buildInfoRow("📦", "Package", "com.chirag.html_runner"),
-              _buildInfoRow("👨‍💻", "Developer", "Chirag Shylendra"),
-              _buildInfoRow("🐙", "GitHub", "@chirag7gaming"),
-              _buildInfoRow("⚖️", "License", "MIT License"),
-              _buildInfoRow("🎯", "Purpose", "Free HTML IDE"),
-              _buildInfoRow("💡", "Inspiration", "Black India Day"),
-              _buildInfoRow("🚀", "Features", "Projects, Editor, Sync"),
-              _buildInfoRow("🎮", "Easter Egg", "You found it! 🎉"),
-              const SizedBox(height: 16),
-              const Text(
-                "Made with 🇮🇳 and ❤️\nZero ads. Forever free.",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
-              ),
-            ],
+void _showBuildInfoDialog() {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Column(
+        children: [
+          Image.network(
+            'https://i.postimg.cc/44BvYKKb/1771592172406.png',
+            height: 60,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              // Fallback: plain text header when image fails
+              return Column(
+                children: [
+                  Text(
+                    "Fish Gang Co.",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.linkBlue,
+                      fontFamily: 'monospace', // Optional: system font
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    "(Image failed to load)",
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+                ],
+              );
+            },
           ),
+          const SizedBox(height: 8),
+          const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildInfoRow("📱", "App Name", "HTML Runner"),
+            _buildInfoRow("🔢", "Version", "1.6.7+1"),
+            _buildInfoRow("📅", "Release Date", "Feb 20, 2025"),
+            _buildInfoRow("⏱️", "Build Time", "2 hours"),
+            _buildInfoRow("📝", "Lines of Code", "2001 lines"),
+            _buildInfoRow("🎨", "UI Style", "Android 4.2 Jellybean"),
+            _buildInfoRow("💚", "Framework", "Flutter/Dart"),
+            _buildInfoRow("🔧", "Build Tools", "Android SDK 35"),
+            _buildInfoRow("📦", "Package", "com.chirag.html_runner"),
+            _buildInfoRow("👨‍💻", "Developer", "Chirag Shylendra"),
+            _buildInfoRow("🐙", "GitHub", "@chirag7gaming"),
+            _buildInfoRow("⚖️", "License", "MIT License"),
+            _buildInfoRow("🎯", "Purpose", "Free HTML IDE"),
+            _buildInfoRow("💡", "Inspiration", "Black India Day"),
+            _buildInfoRow("🚀", "Features", "Projects, Editor, Sync"),
+            _buildInfoRow("🎮", "Easter Egg", "You found it! 🎉"),
+            const SizedBox(height: 16),
+            const Text(
+              "Made in 🇮🇳 with ❤️\nZero ads. Forever free.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
+            ),
+          ],
         ),
       ),
       actions: [
@@ -428,8 +458,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           child: const Text("Close", style: TextStyle(color: AppColors.androidGreen)),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildInfoRow(String emoji, String label, String value) {
     return Padding(
