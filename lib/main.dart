@@ -14,6 +14,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/gestures.dart';
+import 'package:http/http.dart' as http;
+import 'package:open_file/open_file.dart';
 
 /* =============================================================================
    HTML RUNNER: DEFINITIVE EDITION (IMPROVED)
@@ -27,6 +29,7 @@ import 'package:flutter/gestures.dart';
    - Added version/copyright footer in settings.
    - FIXED: Line numbers now scroll in sync with code editor.
    - FIXED: WebView touch responsiveness (gestures, viewport, permissions).
+   - ADDED: Real update checking from Fish Gang server.
    =============================================================================
 */
 
@@ -251,6 +254,33 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   bool _isLogoSpinning = false;
   Color _logoColor = Colors.white;
   
+  // --- Version order for update checking ---
+  final List<String> _versionOrder = [
+    "1.6.7",
+    "2.0",
+    "2.1",
+    "2.4",
+    "2.8",
+    "3.0",
+    "4.0 Beta",
+    "4.5",
+    "4.7",
+    "5.0",
+    "6.0",
+    "6.7",
+    "7.0",
+    "8.0",
+    "9.0",
+    "10.0"
+  ];
+
+  bool _isNewerVersion(String current, String latest) {
+    int currentIndex = _versionOrder.indexOf(current);
+    int latestIndex = _versionOrder.indexOf(latest);
+    if (currentIndex == -1 || latestIndex == -1) return false;
+    return latestIndex > currentIndex;
+  }
+  
   @override
   void initState() {
     super.initState();
@@ -310,44 +340,120 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     }
   }
 
-  // --- UPDATE CHECK (NEW) ---
+  // --- UPDATE CHECK (REAL) ---
   Future<void> _checkForUpdates() async {
+    const currentVersion = "1.6.7";
+    const pageUrl = "https://fish-gang.netlify.app/appstore%E2%89%A0data=html_runner";
+
+    try {
+      final response = await http.get(Uri.parse(pageUrl));
+      if (response.statusCode == 200) {
+        final versionRegex = RegExp(r'<span id="fg-version"[^>]*>(.*?)</span>');
+        final versionMatch = versionRegex.firstMatch(response.body);
+        final linkRegex = RegExp(r"'1\.6\.7': '([^']+)'");
+        final linkMatch = linkRegex.firstMatch(response.body);
+        
+        if (versionMatch != null && linkMatch != null) {
+          final latestVersion = versionMatch.group(1)!.trim();
+          final downloadUrl = linkMatch.group(1)!;
+          
+          if (_isNewerVersion(currentVersion, latestVersion)) {
+            _showUpdateDialog(downloadUrl, latestVersion);
+          } else {
+            _showUpToDateDialog();
+          }
+        } else {
+          _showErrorDialog("Could not find version info.");
+        }
+      } else {
+        _showErrorDialog("Could not reach update server.");
+      }
+    } catch (e) {
+      _showErrorDialog("Network error. Check your connection.");
+    }
+  }
+
+  void _showUpdateDialog(String url, String version) {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            String message = "Searching...";
-            bool checking = true;
-
-            Future.delayed(const Duration(seconds: 2), () {
-              setState(() {
-                checking = false;
-                final random = DateTime.now().millisecondsSinceEpoch % 2 == 0;
-                if (random) {
-                  message = "One New Update found on APKMirror\nhttps://www.apkmirror.com/";
-                } else {
-                  message = "No Official Update found!";
-                }
-              });
-            });
-
-            return AlertDialog(
-              title: const Text("Update Check"),
-              content: Text(message),
-              actions: checking
-                  ? []
-                  : [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text("OK"),
-                      ),
+      builder: (context) => AlertDialog(
+        title: const Text("🐟 Update Available"),
+        content: Text("Version $version is ready to download."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Later"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => AlertDialog(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text("Downloading version $version..."),
                     ],
-            );
-          },
-        );
-      },
+                  ),
+                ),
+              );
+              
+              try {
+                final appDir = await getApplicationDocumentsDirectory();
+                final file = File('${appDir.path}/HTMLRunner_${version.replaceAll(' ', '_')}.apk');
+                final request = await http.get(Uri.parse(url));
+                await file.writeAsBytes(request.bodyBytes);
+                // ignore: use_build_context_synchronously
+                Navigator.pop(context); // close progress
+                // ignore: use_build_context_synchronously
+                Navigator.pop(context); // close update dialog
+                await OpenFile.open(file.path);
+              } catch (e) {
+                // ignore: use_build_context_synchronously
+                Navigator.pop(context); // close progress
+                _showErrorDialog("Download failed. Try again.");
+              }
+            },
+            child: const Text("Update Now"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUpToDateDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("✅ Up to Date"),
+        content: const Text("You're running the latest version of HTML Runner."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("⚠️ Update Check Failed"),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
     );
   }
 
