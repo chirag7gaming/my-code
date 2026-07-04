@@ -42,12 +42,29 @@ void main() {
 // -----------------------------------------------------------------------------
 
 class AppColors {
-  static const Color nostalgiaBlack = Color(0xFF000000);
-  static const Color androidGreen = Color(0xFF4CAF50);
-  static const Color errorRed = Color(0xFFD32F2F);
-  static const Color folderYellow = Color(0xFFFFCA28);
-  static const Color linkBlue = Color(0xFF2196F3);
-  static const Color gutterGray = Color(0xFF37474F);
+  // ── Holo Dark (Theme.Holo.Dark) ──────────────────────────────────────────
+  static const Color nostalgiaBlack   = Color(0xFF000000); // scaffold bg
+  static const Color holoPanelBg      = Color(0xFF1B1B1B); // card/panel bg
+  static const Color holoPanelBg2     = Color(0xFF262626); // slightly lighter panel
+  static const Color holoBlue         = Color(0xFF33B5E5); // Holo Blue Light (on dark)
+  static const Color holoBlueDark     = Color(0xFF0099CC); // pressed / Holo Blue (on light)
+  static const Color holoDivider      = Color(0xFF3D3D3D); // borders/dividers
+  static const Color holoTextPrimary  = Color(0xFFFFFFFF);
+  static const Color holoTextSecond   = Color(0xFFAAAAAA);
+  // ── Holo Light (Theme.Holo.Light) ────────────────────────────────────────
+  static const Color holoLightBg      = Color(0xFFF2F2F2); // Holo.Light window bg
+  static const Color holoLightPanel   = Color(0xFFFFFFFF); // card/panel
+  static const Color holoLightPanel2  = Color(0xFFEBEBEB); // secondary panel
+  static const Color holoLightDivider = Color(0xFFC8C8C8);
+  static const Color holoLightTextPri = Color(0xFF1A1A1A);
+  static const Color holoLightTextSec = Color(0xFF666666);
+  // ── Shared ───────────────────────────────────────────────────────────────
+  static const Color fishGangTeal     = Color(0xFF5FD4C7); // Fish Gang accent
+  static const Color androidGreen     = Color(0xFF99CC00); // Holo green
+  static const Color errorRed         = Color(0xFFFF4444);
+  static const Color folderYellow     = Color(0xFFFFBB33);
+  static const Color linkBlue         = Color(0xFF33B5E5);
+  static const Color gutterGray       = Color(0xFF37474F);
   static const Color editorBackground = Color(0xFF1E1E1E);
 }
 
@@ -187,20 +204,144 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
 
   @override
   Widget build(BuildContext context) {
+    // ── Theme.Holo.Dark ───────────────────────────────────────────────────
+    final holoDark = ThemeData(
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: AppColors.nostalgiaBlack,
+      canvasColor: AppColors.nostalgiaBlack,
+      cardColor: AppColors.holoPanelBg,
+      dividerColor: AppColors.holoDivider,
+      primaryColor: AppColors.holoBlue,
+      colorScheme: const ColorScheme.dark(
+        primary: AppColors.holoBlue,
+        secondary: AppColors.fishGangTeal,
+        surface: AppColors.holoPanelBg,
+        background: AppColors.nostalgiaBlack,
+        error: AppColors.errorRed,
+        onPrimary: Colors.black,
+        onSecondary: Colors.black,
+        onSurface: AppColors.holoTextPrimary,
+        onBackground: AppColors.holoTextPrimary,
+        onError: Colors.white,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.nostalgiaBlack,
+        elevation: 0,
+        foregroundColor: AppColors.holoTextPrimary,
+        iconTheme: IconThemeData(color: AppColors.holoTextPrimary),
+        titleTextStyle: AppTextStyles.appBarTitle,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.holoPanelBg2,
+        labelStyle: const TextStyle(color: AppColors.holoTextSecond),
+        hintStyle: const TextStyle(color: AppColors.holoTextSecond),
+        border: OutlineInputBorder(
+          borderSide: const BorderSide(color: AppColors.holoDivider),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: AppColors.holoDivider),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: AppColors.holoBlue, width: 2),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.holoBlue,
+          foregroundColor: Colors.black,
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          elevation: 0,
+          textStyle: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: AppColors.holoBlue),
+      ),
+      listTileTheme: const ListTileThemeData(
+        textColor: AppColors.holoTextPrimary,
+        iconColor: AppColors.holoTextSecond,
+      ),
+      dividerTheme: const DividerThemeData(color: AppColors.holoDivider, thickness: 1),
+      useMaterial3: false,
+    );
+
+    // ── Theme.Holo.Light ──────────────────────────────────────────────────
+    // AppBar stays dark even in Holo.Light (matches Theme.Holo.Light.DarkActionBar)
+    final holoLight = ThemeData(
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: AppColors.holoLightBg,
+      canvasColor: AppColors.holoLightBg,
+      cardColor: AppColors.holoLightPanel,
+      dividerColor: AppColors.holoLightDivider,
+      primaryColor: AppColors.holoBlueDark,
+      colorScheme: const ColorScheme.light(
+        primary: AppColors.holoBlueDark,
+        secondary: AppColors.fishGangTeal,
+        surface: AppColors.holoLightPanel,
+        background: AppColors.holoLightBg,
+        error: AppColors.errorRed,
+        onPrimary: Colors.white,
+        onSecondary: Colors.black,
+        onSurface: AppColors.holoLightTextPri,
+        onBackground: AppColors.holoLightTextPri,
+        onError: Colors.white,
+      ),
+      // ActionBar is dark even on Holo.Light — same as Theme.Holo.Light.DarkActionBar
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.nostalgiaBlack,
+        elevation: 0,
+        foregroundColor: AppColors.holoTextPrimary,
+        iconTheme: IconThemeData(color: AppColors.holoTextPrimary),
+        titleTextStyle: AppTextStyles.appBarTitle,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.holoLightPanel,
+        labelStyle: const TextStyle(color: AppColors.holoLightTextSec),
+        hintStyle: const TextStyle(color: AppColors.holoLightTextSec),
+        border: OutlineInputBorder(
+          borderSide: const BorderSide(color: AppColors.holoLightDivider),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: AppColors.holoLightDivider),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: AppColors.holoBlueDark, width: 2),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.holoBlueDark,
+          foregroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          elevation: 0,
+          textStyle: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: AppColors.holoBlueDark),
+      ),
+      listTileTheme: const ListTileThemeData(
+        textColor: AppColors.holoLightTextPri,
+        iconColor: AppColors.holoLightTextSec,
+      ),
+      dividerTheme: const DividerThemeData(color: AppColors.holoLightDivider, thickness: 1),
+      useMaterial3: false,
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'HTML Runner',
-      theme: ThemeData.light().copyWith(
-        primaryColor: AppColors.nostalgiaBlack,
-        appBarTheme: const AppBarTheme(backgroundColor: AppColors.nostalgiaBlack),
-        useMaterial3: false,
-      ),
-      darkTheme: ThemeData.dark().copyWith(
-        primaryColor: AppColors.nostalgiaBlack,
-        appBarTheme: const AppBarTheme(backgroundColor: AppColors.nostalgiaBlack),
-        useMaterial3: false,
-      ),
-      themeMode: _themeMode,
+      theme: holoLight,
+      darkTheme: holoDark,
+      themeMode: _themeMode, // system → device picks; or user override via settings
       home: MainDashboard(onThemeChange: _updateTheme),
     );
   }
@@ -669,7 +810,7 @@ void _showBuildInfoDialog() {
           Expanded(
             child: RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 13, color: Colors.black87),
+                style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
                 children: [
                   TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
                   TextSpan(text: value),
@@ -941,9 +1082,15 @@ void _showBuildInfoDialog() {
     );
   }
 
-  // --- AUTH UI ---
-
   Widget _buildAuthScreen() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final panelBg   = isDark ? AppColors.holoPanelBg  : AppColors.holoLightPanel;
+    final panelBg2  = isDark ? AppColors.holoPanelBg2 : AppColors.holoLightPanel2;
+    final divider   = isDark ? AppColors.holoDivider   : AppColors.holoLightDivider;
+    final textPri   = isDark ? AppColors.holoTextPrimary : AppColors.holoLightTextPri;
+    final accent    = isDark ? AppColors.holoBlue      : AppColors.holoBlueDark;
+
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -953,10 +1100,8 @@ void _showBuildInfoDialog() {
             // Fish Gang Auth card
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.grey.shade400),
-                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+                color: panelBg,
+                border: Border.all(color: divider),
               ),
               child: Column(
                 children: [
@@ -964,10 +1109,7 @@ void _showBuildInfoDialog() {
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF5FD4C7),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(3)),
-                    ),
+                    color: AppColors.fishGangTeal,
                     child: Row(
                       children: const [
                         Icon(Icons.water, color: Colors.black, size: 20),
@@ -991,9 +1133,9 @@ void _showBuildInfoDialog() {
                         TextField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
+                          style: TextStyle(color: textPri),
                           decoration: const InputDecoration(
                             labelText: "Email",
-                            border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.email_outlined),
                             isDense: true,
                           ),
@@ -1002,10 +1144,10 @@ void _showBuildInfoDialog() {
                         TextField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
+                          style: TextStyle(color: textPri),
                           onSubmitted: (_) => _signInWithFishGang(),
                           decoration: InputDecoration(
                             labelText: "Password",
-                            border: const OutlineInputBorder(),
                             prefixIcon: const Icon(Icons.lock_outline),
                             isDense: true,
                             suffixIcon: IconButton(
@@ -1018,15 +1160,15 @@ void _showBuildInfoDialog() {
                         ElevatedButton(
                           onPressed: _isSigningIn ? null : _signInWithFishGang,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF5FD4C7),
+                            backgroundColor: AppColors.fishGangTeal,
                             foregroundColor: Colors.black,
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                            elevation: 0,
                           ),
                           child: _isSigningIn
                               ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
+                                  height: 18, width: 18,
                                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                                 )
                               : const Text("Sign In", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -1035,15 +1177,14 @@ void _showBuildInfoDialog() {
                         Center(
                           child: TextButton(
                             onPressed: () {
-                              // Open Fish Gang registration in browser
                               Fluttertoast.showToast(
                                 msg: "Register at fish-gang.netlify.app",
                                 toastLength: Toast.LENGTH_LONG,
                               );
                             },
-                            child: const Text(
+                            child: Text(
                               "No account? Register on Fish Gang ↗",
-                              style: TextStyle(fontSize: 12, color: Colors.blue),
+                              style: TextStyle(fontSize: 12, color: accent),
                             ),
                           ),
                         ),
@@ -1056,7 +1197,7 @@ void _showBuildInfoDialog() {
 
             const SizedBox(height: 24),
 
-            // Local storage option (unchanged)
+            // Local storage option
             _buildAuthOption(
               title: "Use Application Storage",
               isWarningVisible: _showLocalWarning,
@@ -1085,37 +1226,47 @@ void _showBuildInfoDialog() {
     required VoidCallback onTap,
     required VoidCallback onContinue,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panelBg  = isDark ? AppColors.holoPanelBg  : AppColors.holoLightPanel;
+    final panelBg2 = isDark ? AppColors.holoPanelBg2 : AppColors.holoLightPanel2;
+    final divider  = isDark ? AppColors.holoDivider   : AppColors.holoLightDivider;
+    final textPri  = isDark ? AppColors.holoTextPrimary : AppColors.holoLightTextPri;
+    final textSec  = isDark ? AppColors.holoTextSecond  : AppColors.holoLightTextSec;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.grey.shade400),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+        color: panelBg,
+        border: Border.all(color: divider),
       ),
       child: Column(
         children: [
           ListTile(
-            title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-            trailing: Icon(isWarningVisible ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
+            title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: textPri)),
+            trailing: Icon(
+              isWarningVisible ? Icons.expand_less : Icons.expand_more,
+              color: textSec,
+            ),
             onTap: onTap,
           ),
           if (isWarningVisible)
             Container(
               padding: const EdgeInsets.all(16),
-              color: Colors.grey.shade50,
+              color: panelBg2,
               child: Column(
                 children: [
                   Text(
                     warningText,
-                    style: AppTextStyles.warningText,
+                    style: const TextStyle(color: AppColors.errorRed, fontSize: 13, fontWeight: FontWeight.w500),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.androidGreen,
-                      foregroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                      elevation: 0,
                     ),
                     onPressed: onContinue,
                     child: const Text("Continue?", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -1181,7 +1332,7 @@ void _showBuildInfoDialog() {
       padding: const EdgeInsets.only(bottom: 16.0, left: 8.0),
       child: Text(
         text,
-        style: TextStyle(color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.45), fontStyle: FontStyle.italic),
       ),
     );
   }
@@ -1428,7 +1579,7 @@ void _showBuildInfoDialog() {
             child: Text(
               "HTML Runner v1.6.7 © (made by Chirag on 2026)",
               style: TextStyle(
-                color: Colors.grey.shade600,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.45),
                 fontSize: 12,
                 fontFamily: 'monospace',
                 letterSpacing: 0.5,
@@ -1522,10 +1673,18 @@ void _showBuildInfoDialog() {
                   onTap: () => setState(() => isSelected ? selectedIndices.remove(index) : selectedIndices.add(index)),
                   child: Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: isSelected ? Colors.blue : Colors.grey, width: isSelected ? 3 : 1),
-                      color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.white,
+                      border: Border.all(
+                        color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor,
+                        width: isSelected ? 3 : 1,
+                      ),
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.primary.withOpacity(0.15)
+                          : Theme.of(context).cardColor,
                     ),
-                    child: Icon(gridItems[index], size: 40, color: isSelected ? Colors.blue : Colors.black54),
+                    child: Icon(gridItems[index], size: 40,
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
                   ),
                 );
               },
@@ -1627,7 +1786,7 @@ class ProjectTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          border: Border.all(color: Colors.grey.shade400, width: 2),
+          border: Border.all(color: Theme.of(context).dividerColor, width: 2),
           boxShadow: const [BoxShadow(color: Colors.black12, offset: Offset(2, 2), blurRadius: 4)],
         ),
         child: IntrinsicHeight(
@@ -1791,7 +1950,7 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
                 onTap: _pickIcon,
                 child: Container(
                   height: 120,
-                  color: Colors.grey.shade300,
+                  color: Theme.of(context).cardColor,
                   child: _selectedIconPath != null
                       ? Image.file(
                           File(_selectedIconPath!),
@@ -2236,7 +2395,7 @@ class ProjectDetailScreen extends StatelessWidget {
               Container(
                 width: 60, 
                 height: 60,
-                color: Colors.grey.shade300,
+                color: Theme.of(context).cardColor,
                 child: project.iconPath != null
                     ? Image.file(
                         File(project.iconPath!),
