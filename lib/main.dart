@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:archive/archive.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -208,6 +207,30 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
 }
 
 // -----------------------------------------------------------------------------
+// FISH GANG AUTH: User model & sign-in helper
+// Uses Firebase Identity Toolkit REST API — no SDK, no google-services.json.
+// Same Firebase project as the Fish Gang website (fish-gang-website).
+// -----------------------------------------------------------------------------
+
+class FishGangUser {
+  final String uid;
+  final String email;
+  final String? displayName;
+
+  FishGangUser({required this.uid, required this.email, this.displayName});
+
+  /// Initials for avatar (e.g. "CS" from "Chirag Shylendra" or "C" from email)
+  String get initials {
+    if (displayName != null && displayName!.trim().isNotEmpty) {
+      final parts = displayName!.trim().split(' ').where((p) => p.isNotEmpty).toList();
+      if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      return parts[0][0].toUpperCase();
+    }
+    return email[0].toUpperCase();
+  }
+}
+
+// -----------------------------------------------------------------------------
 // SECTION 4: MAIN DASHBOARD & LOGIC
 // -----------------------------------------------------------------------------
 
@@ -221,11 +244,16 @@ class MainDashboard extends StatefulWidget {
 
 class _MainDashboardState extends State<MainDashboard> with TickerProviderStateMixin {
   // Services
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
   final ImagePicker _imagePicker = ImagePicker();
 
+  // Fish Gang Auth controllers
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isSigningIn = false;
+  bool _obscurePassword = true;
+
   // State Variables
-  GoogleSignInAccount? _currentUser;
+  FishGangUser? _currentUser;
   bool _isLocalMode = false;
   bool _isSyncing = false;
   
@@ -308,6 +336,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     _syncTimer?.cancel();
     _logoSpinController.dispose();
     _tapResetTimer?.cancel();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -325,18 +355,79 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     }
   }
 
-  void _initializeAuth() {
-    _googleSignIn.onCurrentUserChanged.listen((account) {
-      setState(() {
-        _currentUser = account;
-        if (account != null) _isLocalMode = false;
-      });
-    });
-    
+  void _initializeAuth() async {
     try {
-      _googleSignIn.signInSilently();
+      final prefs = await SharedPreferences.getInstance();
+      final uid = prefs.getString('fg_uid');
+      final email = prefs.getString('fg_email');
+      if (uid != null && email != null) {
+        setState(() {
+          _currentUser = FishGangUser(
+            uid: uid,
+            email: email,
+            displayName: prefs.getString('fg_name'),
+          );
+          _isLocalMode = false;
+        });
+      }
     } catch (e) {
-      debugPrint('Silent sign-in failed: $e');
+      debugPrint('Auth restore failed: $e');
+    }
+  }
+
+  /// Sign in with Fish Gang (Firebase Auth REST API — no SDK needed).
+  Future<void> _signInWithFishGang() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      Fluttertoast.showToast(msg: "Please enter your email and password.");
+      return;
+    }
+    setState(() => _isSigningIn = true);
+    try {
+      const apiKey = 'AIzaSyCFnf-0frEB7jSQhPLbDQxcm3Qgbi3o77M';
+      final url = Uri.parse(
+        'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey',
+      );
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password, 'returnSecureToken': true}),
+      );
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        final user = FishGangUser(
+          uid: data['localId'] as String,
+          email: data['email'] as String,
+          displayName: data['displayName'] as String?,
+        );
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fg_uid', user.uid);
+        await prefs.setString('fg_email', user.email);
+        await prefs.setString('fg_token', data['idToken'] as String);
+        if (user.displayName != null) await prefs.setString('fg_name', user.displayName!);
+        setState(() {
+          _currentUser = user;
+          _isLocalMode = false;
+        });
+        _emailController.clear();
+        _passwordController.clear();
+      } else {
+        final msg = (data['error']?['message'] as String?) ?? 'Login failed';
+        // Make Firebase error messages friendlier
+        final friendly = msg.contains('EMAIL_NOT_FOUND') || msg.contains('INVALID_LOGIN_CREDENTIALS')
+            ? 'Invalid email or password.'
+            : msg.contains('INVALID_EMAIL')
+                ? 'Please enter a valid email.'
+                : msg.contains('TOO_MANY_ATTEMPTS')
+                    ? 'Too many attempts. Try again later.'
+                    : msg;
+        Fluttertoast.showToast(msg: friendly);
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: "Sign-in error: $e");
+    } finally {
+      setState(() => _isSigningIn = false);
     }
   }
 
@@ -830,15 +921,15 @@ void _showBuildInfoDialog() {
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: CircleAvatar(
               radius: 14,
-              backgroundImage: (_currentUser!.photoUrl != null)
-                  ? NetworkImage(_currentUser!.photoUrl!)
-                  : null,
-              child: (_currentUser!.photoUrl == null)
-                  ? const Icon(Icons.person, size: 14)
-                  : null,
-              onBackgroundImageError: (_, __) {
-                // Fallback to icon if image fails
-              },
+              backgroundColor: const Color(0xFF5FD4C7),
+              child: Text(
+                _currentUser!.initials,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
           
@@ -859,27 +950,113 @@ void _showBuildInfoDialog() {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildAuthOption(
-              title: "Use Google Account",
-              isWarningVisible: _showGoogleWarning,
-              warningText: "ℹ Your Code and Projects would be saved in your Google Account. Warning: If you delete your accounts, your projects and code would be deleted as well.",
-              onTap: () {
-                setState(() {
-                  _showGoogleWarning = true;
-                  _showLocalWarning = false;
-                });
-              },
-              onContinue: () async {
-                try {
-                  await _googleSignIn.signIn();
-                } catch (e) {
-                  Fluttertoast.showToast(msg: "Login Failed: $e");
-                }
-              },
+            // Fish Gang Auth card
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.grey.shade400),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+              ),
+              child: Column(
+                children: [
+                  // Header
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF5FD4C7),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(3)),
+                    ),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.water, color: Colors.black, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          "Fish Gang Account",
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: const InputDecoration(
+                            labelText: "Email",
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.email_outlined),
+                            isDense: true,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          onSubmitted: (_) => _signInWithFishGang(),
+                          decoration: InputDecoration(
+                            labelText: "Password",
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            isDense: true,
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _isSigningIn ? null : _signInWithFishGang,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF5FD4C7),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                          child: _isSigningIn
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                )
+                              : const Text("Sign In", style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: TextButton(
+                            onPressed: () {
+                              // Open Fish Gang registration in browser
+                              Fluttertoast.showToast(
+                                msg: "Register at fish-gang.netlify.app",
+                                toastLength: Toast.LENGTH_LONG,
+                              );
+                            },
+                            child: const Text(
+                              "No account? Register on Fish Gang ↗",
+                              style: TextStyle(fontSize: 12, color: Colors.blue),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 24),
 
+            // Local storage option (unchanged)
             _buildAuthOption(
               title: "Use Application Storage",
               isWarningVisible: _showLocalWarning,
@@ -1278,7 +1455,7 @@ void _showBuildInfoDialog() {
   void _triggerSecurityVerification() {
     if (_currentUser != null) {
       _showChallengeDialog(
-        title: "Gmail Security Verification",
+        title: "Fish Gang Security Verification",
         hint: "Enter the code shown in your security alert: 552-881",
         correctCode: "552-881",
       );
@@ -1412,9 +1589,16 @@ void _showBuildInfoDialog() {
   }
 
   void _handleSignOut() async {
-    await _googleSignIn.signOut();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('fg_uid');
+      await prefs.remove('fg_email');
+      await prefs.remove('fg_token');
+      await prefs.remove('fg_name');
+      await prefs.remove('is_local_mode');
+    } catch (e) {
+      debugPrint('Sign-out cleanup error: $e');
+    }
     exit(0);
   }
 }
