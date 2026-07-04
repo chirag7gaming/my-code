@@ -15,9 +15,6 @@ dependencies:
   shared_preferences: ^2.5.3
   path_provider: ^2.1.5
   
-  # Authentication
-  google_sign_in: ^6.3.0
-  
   # File operations
   file_picker: ^10.3.10      # ← FIXED (no v1 embedding)
   image_picker: ^1.2.0
