@@ -34,6 +34,28 @@ import 'package:open_file/open_file.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // In release mode, Flutter swallows build exceptions and shows blank.
+  // Override ErrorWidget so crashes show a visible message instead.
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Material(
+      color: const Color(0xFF1B1B1B),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Color(0xFFFF4444), size: 48),
+            const SizedBox(height: 12),
+            const Text('HTML Runner crashed', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(details.exceptionAsString(), style: const TextStyle(color: Color(0xFFAAAAAA), fontSize: 12, fontFamily: 'monospace'), textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  };
+
   runApp(const HTMLRunnerApp());
 }
 
@@ -173,7 +195,7 @@ class HTMLRunnerApp extends StatefulWidget {
 }
 
 class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark; // default to Holo Dark; user can switch to Light in settings
 
   @override
   void initState() {
@@ -185,7 +207,7 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
     try {
       final prefs = await SharedPreferences.getInstance();
       setState(() {
-        _themeMode = ThemeMode.values[prefs.getInt('theme_pref') ?? 0];
+        _themeMode = ThemeMode.values[prefs.getInt('theme_pref') ?? 2];
       });
     } catch (e) {
       debugPrint('Error loading theme: $e');
@@ -393,6 +415,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   bool _isSigningIn = false;
   bool _obscurePassword = true;
 
+  // First-run permissions gate
+  bool _permsDone = false;
+
   // State Variables
   FishGangUser? _currentUser;
   bool _isLocalMode = false;
@@ -462,7 +487,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       duration: const Duration(seconds: 7),
     );
 
-    _initializePermissions();
     _initializeAuth();
     _loadData();
 
@@ -484,33 +508,23 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   // --- INITIALIZATION ---
 
-  Future<void> _initializePermissions() async {
-    try {
-      await [
-        Permission.storage,
-        Permission.manageExternalStorage,
-        Permission.photos,
-      ].request();
-    } catch (e) {
-      debugPrint('Permission request error: $e');
-    }
-  }
-
   void _initializeAuth() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final uid = prefs.getString('fg_uid');
+      final permsDone = prefs.getBool('perms_done') ?? false;
+      final uid   = prefs.getString('fg_uid');
       final email = prefs.getString('fg_email');
-      if (uid != null && email != null) {
-        setState(() {
+      setState(() {
+        _permsDone = permsDone;
+        if (uid != null && email != null) {
           _currentUser = FishGangUser(
             uid: uid,
             email: email,
             displayName: prefs.getString('fg_name'),
           );
           _isLocalMode = false;
-        });
-      }
+        }
+      });
     } catch (e) {
       debugPrint('Auth restore failed: $e');
     }
@@ -1026,9 +1040,18 @@ void _showBuildInfoDialog() {
   Widget build(BuildContext context) {
     bool isAuthenticated = _currentUser != null || _isLocalMode;
 
+    Widget body;
+    if (!_permsDone) {
+      body = _buildPermissionsScreen();
+    } else if (!isAuthenticated) {
+      body = _buildAuthScreen();
+    } else {
+      body = _buildWorkspace();
+    }
+
     return Scaffold(
       appBar: _buildNostalgicAppBar(),
-      body: !isAuthenticated ? _buildAuthScreen() : _buildWorkspace(),
+      body: body,
     );
   }
 
@@ -1082,7 +1105,118 @@ void _showBuildInfoDialog() {
     );
   }
 
-  Widget _buildAuthScreen() {
+  // --- PERMISSIONS SCREEN (first run only) ---
+
+  Future<void> _requestAllPermissions() async {
+    try {
+      await [
+        Permission.storage,
+        Permission.manageExternalStorage,
+        Permission.photos,
+      ].request();
+    } catch (e) {
+      debugPrint('Permission request error: $e');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('perms_done', true);
+    setState(() => _permsDone = true);
+  }
+
+  Widget _buildPermissionsScreen() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panelBg  = isDark ? AppColors.holoPanelBg  : AppColors.holoLightPanel;
+    final panelBg2 = isDark ? AppColors.holoPanelBg2 : AppColors.holoLightPanel2;
+    final divider  = isDark ? AppColors.holoDivider   : AppColors.holoLightDivider;
+    final textPri  = isDark ? AppColors.holoTextPrimary : AppColors.holoLightTextPri;
+    final textSec  = isDark ? AppColors.holoTextSecond  : AppColors.holoLightTextSec;
+
+    final perms = [
+      {'icon': Icons.folder_open,   'name': 'Storage',         'desc': 'Read and write files for your HTML projects and exports.'},
+      {'icon': Icons.sd_storage,    'name': 'Manage Storage',  'desc': 'Access all files so HTML Runner can open projects from any folder.'},
+      {'icon': Icons.photo_library, 'name': 'Photos / Media',  'desc': 'Insert images into your projects from your gallery.'},
+    ];
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            // Header card
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: panelBg,
+                border: Border.all(color: divider),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    color: AppColors.holoBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.security, color: Colors.black, size: 20),
+                        SizedBox(width: 8),
+                        Text("App Permissions",
+                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 15)),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Text(
+                      "HTML Runner needs the following permissions to work correctly. "
+                      "You'll only see this screen once.",
+                      style: TextStyle(color: textSec, fontSize: 13),
+                    ),
+                  ),
+                  // Permission rows
+                  for (final perm in perms) ...[
+                    Container(
+                      color: panelBg2,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(perm['icon'] as IconData, color: AppColors.holoBlue, size: 28),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(perm['name'] as String, style: TextStyle(color: textPri, fontWeight: FontWeight.bold, fontSize: 14)),
+                                const SizedBox(height: 2),
+                                Text(perm['desc'] as String, style: TextStyle(color: textSec, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(height: 1, color: divider),
+                  ],
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _requestAllPermissions,
+                        child: const Text("Grant Permissions"),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- AUTH UI ---
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final panelBg   = isDark ? AppColors.holoPanelBg  : AppColors.holoLightPanel;
