@@ -874,10 +874,10 @@ void _showBuildInfoDialog() {
             ListTile(
               leading: const Icon(Icons.file_open, color: AppColors.androidGreen),
               title: const Text("Import from Storage"),
-              subtitle: const Text("Only .html allowed", style: TextStyle(fontSize: 11, color: Colors.grey)),
+              subtitle: const Text("HTML → IDE · Other files → system app", style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(context);
-                _importHtmlFile();
+                _importAnyFile();
               },
             ),
             const SizedBox(height: 20),
@@ -887,28 +887,39 @@ void _showBuildInfoDialog() {
     );
   }
 
-  Future<void> _importHtmlFile() async {
+  Future<void> _importAnyFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['html'],
+        type: FileType.any,
       );
+      if (result == null) return;
 
-      if (result != null && result.files.single.path != null) {
-        File selectedFile = File(result.files.single.path!);
-        String content = await selectedFile.readAsString();
-        
-        setState(() {
-          _standaloneFiles.add(FileModel(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            name: result.files.single.name,
-            content: content,
-            lastEdit: DateFormat('HH:mm').format(DateTime.now()),
-          ));
-        });
-        _saveData();
-        Fluttertoast.showToast(msg: "Imported ${result.files.single.name}");
+      final picked = result.files.first;
+      final name = picked.name;
+      final path = picked.path;
+
+      // Non-HTML: hand off to Android's "Open with..." and don't import
+      if (!name.toLowerCase().endsWith('.html')) {
+        if (path != null) {
+          await OpenFile.open(path);
+        } else {
+          Fluttertoast.showToast(msg: "Cannot open this file type.");
+        }
+        return;
       }
+
+      // HTML: import into the editor as usual
+      if (path == null) {
+        Fluttertoast.showToast(msg: "Could not read file path.");
+        return;
+      }
+      final content = await File(path).readAsString();
+      _openCodeEditor(FileModel(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: name,
+        content: content,
+        lastEdit: DateFormat('HH:mm').format(DateTime.now()),
+      ));
     } catch (e) {
       Fluttertoast.showToast(msg: "Import failed: $e");
     }
@@ -2212,12 +2223,8 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
   }
 
   void _updateLineCount() {
-    final lines = widget.controller.text.split('\n').length;
-    if (_lineCount != lines) {
-      setState(() {
-        _lineCount = lines;
-      });
-    }
+    final lines = '\n'.allMatches(widget.controller.text).length + 1;
+    if (_lineCount != lines) setState(() => _lineCount = lines);
   }
 
   @override
@@ -2228,23 +2235,38 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
 
   @override
   Widget build(BuildContext context) {
+    // lineH must match the TextField: fontSize(14) * height(1.5) = 21.0
+    const double lineH = 21.0;
     return Container(
-      width: 40,
+      width: 44,
       color: AppColors.gutterGray,
-      child: ListView.builder(
-        controller: widget.scrollController,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: _lineCount,
-        itemExtent: 21.0,
-        itemBuilder: (context, index) {
-          return Text(
-            "${index + 1}",
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.grey,
-              fontSize: 14,
-              height: 1.5,
-              fontFamily: 'monospace',
+      clipBehavior: Clip.hardEdge,
+      child: AnimatedBuilder(
+        animation: widget.scrollController,
+        builder: (context, _) {
+          final offset = widget.scrollController.hasClients
+              ? widget.scrollController.offset
+              : 0.0;
+          // Translate the whole column upward by the scroll offset —
+          // no ListView gaps, no white bottom, perfectly in sync.
+          return Transform.translate(
+            offset: Offset(0, -offset),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: List.generate(_lineCount, (i) => SizedBox(
+                height: lineH,
+                child: Text(
+                  '${i + 1}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontSize: 14,
+                    height: 1.5,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              )),
             ),
           );
         },
@@ -2436,7 +2458,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
                         ),
                         decoration: const InputDecoration(
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.all(8),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8),
                         ),
                       ),
                     ),
