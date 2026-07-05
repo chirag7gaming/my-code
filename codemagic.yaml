@@ -1,0 +1,15 @@
+workflows:
+  android-release:
+    name: HTML Runner - Android Release
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+      - name: Build fat APK
+        # No --split-per-abi, no --target-platform → single fat APK with all ABIs
+        # (armeabi-v7a for Redmi Go, arm64-v8a for DOMO Slate)
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
