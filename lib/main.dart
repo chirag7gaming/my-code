@@ -1235,6 +1235,7 @@ void _showBuildInfoDialog() {
   }
 
   // --- AUTH UI ---
+  Widget _buildAuthScreen() {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final panelBg   = isDark ? AppColors.holoPanelBg  : AppColors.holoLightPanel;
