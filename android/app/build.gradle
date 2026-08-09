@@ -46,10 +46,6 @@ flutter {
     source "../.."
 }
 
-// Workaround for Flutter bug #174620:
-// When using modern AGP DSL (pluginManagement in settings.gradle, no buildscript
-// in build.gradle), Flutter's copy logic isn't triggered and the CLI can't find
-// the APK. This task manually syncs it to the path Flutter expects.
 def flutterOutDir = file("$buildDir/outputs/flutter-apk")
 def apkReleaseDir = file("$buildDir/outputs/apk/release")
 def cliOutDir     = new File(rootDir.parentFile, "build/app/outputs/flutter-apk")
