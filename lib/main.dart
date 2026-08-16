@@ -1179,7 +1179,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             children: [
               _buildInfoRow("📱", "App Name",    "HTML Runner"),
               _buildInfoRow("🔢", "Version",     "1.6.7+1"),
-              _buildInfoRow("📝", "Lines",       "~2700 lines"),
+              _buildInfoRow("📝", "Lines",       "4125 lines"),
               _buildInfoRow("🎨", "UI Style",    "Android 4.2 Jellybean"),
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
               _buildInfoRow("🔧", "SDK",         "Android SDK 36"),
@@ -1187,7 +1187,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               _buildInfoRow("👨\u200d💻", "Dev", "Chirag Shylendra"),
               _buildInfoRow("🐙", "GitHub",      "@chirag7gaming"),
               _buildInfoRow("⚖️", "License",     "MIT License"),
-              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67🐾"),
+              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67🤷🏼"),
               const SizedBox(height: 8),
               const Text(
                 "Made in 🇮🇳 with ❤️  •  Zero ads. Forever free.",
