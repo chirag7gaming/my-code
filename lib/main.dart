@@ -1179,7 +1179,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             children: [
               _buildInfoRow("📱", "App Name",    "HTML Runner"),
               _buildInfoRow("🔢", "Version",     "1.6.7+1"),
-              _buildInfoRow("📝", "Lines",       "4125 lines"),
+              _buildInfoRow("📝", "Lines",       "~2700 lines"),
               _buildInfoRow("🎨", "UI Style",    "Android 4.2 Jellybean"),
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
               _buildInfoRow("🔧", "SDK",         "Android SDK 36"),
@@ -1187,7 +1187,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               _buildInfoRow("👨\u200d💻", "Dev", "Chirag Shylendra"),
               _buildInfoRow("🐙", "GitHub",      "@chirag7gaming"),
               _buildInfoRow("⚖️", "License",     "MIT License"),
-              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67🤷🏼"),
+              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67🐾"),
               const SizedBox(height: 8),
               const Text(
                 "Made in 🇮🇳 with ❤️  •  Zero ads. Forever free.",
@@ -1938,9 +1938,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(perm['name'] as String, style: const TextStyle(color: txtPri, fontWeight: FontWeight.bold, fontSize: 14)),
+                                Text(perm['name'] as String, style: TextStyle(color: txtPri, fontWeight: FontWeight.bold, fontSize: 14)),
                                 const SizedBox(height: 2),
-                                Text(perm['desc'] as String, style: const TextStyle(color: txtSec, fontSize: 12)),
+                                Text(perm['desc'] as String, style: TextStyle(color: txtSec, fontSize: 12)),
                               ],
                             ),
                           ),
@@ -3425,6 +3425,7 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
   late final WebViewController _controller;
   bool _isLoading    = true;
   bool _showToolPanel = false;
+  bool _isWinMode    = false;
   late AnimationController _panelAnimation;
   late Animation<double>   _panelSlide;
   final ImagePicker _imagePicker = ImagePicker();
@@ -3446,33 +3447,33 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
   }
 
   Future<void> _initWebView() async {
-    final wvc = WebViewController()
+    _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
       ..setNavigationDelegate(NavigationDelegate(
         onPageStarted:  (_) => setState(() => _isLoading = true),
         onPageFinished: (_) {
           setState(() => _isLoading = false);
-          _injectTouchHandling(wvc);
+          _injectTouchHandling(_controller); // _controller is assigned before this fires
         },
         onNavigationRequest: (_) => NavigationDecision.navigate,
-        onWebResourceError: (e) => debugPrint('WebView: \${e.description}'),
+        onWebResourceError: (e) => debugPrint('WebView: ${e.description}'),
       ))
-      ..enableZoom(true)
-      ..loadHtmlString(''); // placeholder — actual load below
-    ;
+      ..enableZoom(true);
+
+    if (Platform.isAndroid) await _setupAndroidFileUpload(_controller);
+
     if (widget.filePath != null) {
-      await wvc.loadFile(widget.filePath!);
+      await _controller.loadFile(widget.filePath!);
     } else {
-      await wvc.loadHtmlString(widget.htmlContent ?? '');
+      await _controller.loadHtmlString(widget.htmlContent ?? '');
     }
 
-    if (Platform.isAndroid) await _setupAndroidFileUpload(wvc);
-    setState(() => _controller = wvc);
+    if (mounted) setState(() {}); // trigger rebuild now _controller is ready
   }
 
-  Future<void> _setupAndroidFileUpload(WebViewController wvc) async {
-    final androidCtrl = wvc.platform as AndroidWebViewController;
+  Future<void> _setupAndroidFileUpload(WebViewController controller) async {
+    final androidCtrl = controller.platform as AndroidWebViewController;
     androidCtrl.setOnShowFileSelector((params) async {
       try {
         final isCapture  = params.isCaptureEnabled;
@@ -3513,7 +3514,7 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
   Future<bool> _requestPermission(Permission p) async {
     final prefs = await SharedPreferences.getInstance();
     final mode  = prefs.getString('permission_mode') ?? "ask";
-    final alwaysAllow = prefs.getBool('perm_\${p.toString().split('.').last}') ?? false;
+    final alwaysAllow = prefs.getBool('perm_${p.toString().split(".").last}') ?? false;
     if (mode == "always" && alwaysAllow) {
       return (await p.request()).isGranted;
     }
@@ -3535,7 +3536,7 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
     final exts = <String>{};
     for (final t in types) {
       if (map.containsKey(t)) { exts.addAll(map[t]!); continue; }
-      final wild = '\${t.split('/')[0]}/*';
+      final wild = '${t.split("/")[0]}/*';
       if (map.containsKey(wild)) { exts.addAll(map[wild]!); continue; }
       if (t.startsWith('.')) exts.add(t.substring(1));
     }
@@ -3565,6 +3566,17 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
         "{key:'\${keys[dir]}',code:'\${keys[dir]}',keyCode:\${codes[dir]},bubbles:true}));");
   }
 
+
+  void _sendSpecialKey(String key, String code, int keyCode) {
+    final js = "(function(){" +
+      "var o={key:'" + key + "',code:'" + code + "',keyCode:" + keyCode.toString() + ",which:" + keyCode.toString() + ",bubbles:true,cancelable:true};" +
+      "var el=document.activeElement||document.body;" +
+      "el.dispatchEvent(new KeyboardEvent('keydown',o));" +
+      "setTimeout(function(){el.dispatchEvent(new KeyboardEvent('keyup',o));},80);" +
+      "})();";
+    _controller.runJavaScript(js);
+  }
+
   void _togglePanel() {
     setState(() {
       _showToolPanel = !_showToolPanel;
@@ -3586,6 +3598,20 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
           child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
         ),
       );
+
+
+  Widget _imgBtn(String asset, VoidCallback onTap) => SizedBox(
+    width: 52, height: 46,
+    child: TextButton(
+      style: TextButton.styleFrom(
+        backgroundColor: Colors.white.withOpacity(0.25),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: EdgeInsets.zero,
+      ),
+      onPressed: onTap,
+      child: Image.asset(asset, width: 30, height: 30, fit: BoxFit.contain),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -3628,51 +3654,119 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // drag handle
                         Container(
                             margin: const EdgeInsets.symmetric(vertical: 8),
                             width: 40, height: 4,
                             decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.4),
                                 borderRadius: BorderRadius.circular(2))),
-                        // Arrow keys
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                            _toolBtn("←", () => _sendArrow('left')),
-                            const SizedBox(width: 16),
-                            _toolBtn("↑", () => _sendArrow('up')),
-                            const SizedBox(width: 16),
-                            _toolBtn("↓", () => _sendArrow('down')),
-                            const SizedBox(width: 16),
-                            _toolBtn("→", () => _sendArrow('right')),
-                          ]),
-                        ),
-                        // Number row
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Wrap(spacing: 6, children:
-                              '1234567890'.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
-                        ),
-                        // QWERTY rows
-                        for (final row in ['QWERTYUIOP','ASDFGHJKL','ZXCVBNM'])
+                        if (!_isWinMode) ...[
+                          // ── Normal keyboard ──────────────────────────
+                          // Arrow keys
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              _toolBtn('←', () => _sendArrow('left')),
+                              const SizedBox(width: 16),
+                              _toolBtn('↑', () => _sendArrow('up')),
+                              const SizedBox(width: 16),
+                              _toolBtn('↓', () => _sendArrow('down')),
+                              const SizedBox(width: 16),
+                              _toolBtn('→', () => _sendArrow('right')),
+                            ]),
+                          ),
+                          // Number row
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             child: Wrap(spacing: 6, children:
-                                row.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                                '1234567890'.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
                           ),
-                        // Space / Enter / Backspace
+                          // QWERTY rows
+                          for (final row in ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'])
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              child: Wrap(spacing: 6, children:
+                                  row.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                            ),
+                          // Space / Enter / Backspace / Windows key
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              _toolBtn('Space', () => _sendKey(' '), width: 100),
+                              const SizedBox(width: 8),
+                              _toolBtn('Enter', () => _sendKey('Enter')),
+                              const SizedBox(width: 8),
+                              _toolBtn('⌫', () => _sendKey('Backspace')),
+                              const SizedBox(width: 8),
+                              // Windows key — switch to special keys panel
+                              _imgBtn('assets/ic_aero_windows.png',
+                                () => setState(() => _isWinMode = true)),
+                            ]),
+                          ),
+                        ] else ...[
+                          // ── Special / Windows keyboard ────────────────
+                          // Esc + F1–F5
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Wrap(spacing: 6, children: [
+                              _toolBtn('Esc',  () => _sendSpecialKey('Escape', 'Escape', 27)),
+                              _toolBtn('F1',   () => _sendSpecialKey('F1',  'F1',  112)),
+                              _toolBtn('F2',   () => _sendSpecialKey('F2',  'F2',  113)),
+                              _toolBtn('F3',   () => _sendSpecialKey('F3',  'F3',  114)),
+                              _toolBtn('F4',   () => _sendSpecialKey('F4',  'F4',  115)),
+                              _toolBtn('F5',   () => _sendSpecialKey('F5',  'F5',  116)),
+                            ]),
+                          ),
+                          // F6–F10
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            child: Wrap(spacing: 6, children: [
+                              _toolBtn('F6',   () => _sendSpecialKey('F6',  'F6',  117)),
+                              _toolBtn('F7',   () => _sendSpecialKey('F7',  'F7',  118)),
+                              _toolBtn('F8',   () => _sendSpecialKey('F8',  'F8',  119)),
+                              _toolBtn('F9',   () => _sendSpecialKey('F9',  'F9',  120)),
+                              _toolBtn('F10',  () => _sendSpecialKey('F10', 'F10', 121)),
+                            ]),
+                          ),
+                          // Modifier keys
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Wrap(spacing: 6, children: [
+                              _toolBtn('Ctrl',  () => _sendSpecialKey('Control', 'ControlLeft', 17), width: 62),
+                              _toolBtn('Shift', () => _sendSpecialKey('Shift',   'ShiftLeft',   16), width: 62),
+                              _toolBtn('Alt',   () => _sendSpecialKey('Alt',     'AltLeft',     18)),
+                              _toolBtn('Tab',   () => _sendSpecialKey('Tab',     'Tab',          9)),
+                              _toolBtn('Caps',  () => _sendSpecialKey('CapsLock','CapsLock',    20)),
+                            ]),
+                          ),
+                          // Nav cluster
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            child: Wrap(spacing: 6, children: [
+                              _toolBtn('Ins',   () => _sendSpecialKey('Insert',  'Insert',   45)),
+                              _toolBtn('Del',   () => _sendSpecialKey('Delete',  'Delete',   46)),
+                              _toolBtn('Home',  () => _sendSpecialKey('Home',    'Home',     36)),
+                              _toolBtn('End',   () => _sendSpecialKey('End',     'End',      35)),
+                              _toolBtn('PgUp',  () => _sendSpecialKey('PageUp',  'PageUp',   33)),
+                              _toolBtn('PgDn',  () => _sendSpecialKey('PageDown','PageDown', 34)),
+                            ]),
+                          ),
+                          // Back to normal keyboard — Android icon
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              _imgBtn('assets/ic_aero_android.png',
+                                () => setState(() => _isWinMode = false)),
+                              const SizedBox(width: 10),
+                              const Text('Back to keyboard',
+                                style: TextStyle(color: Colors.white70, fontSize: 12)),
+                            ]),
+                          ),
+                        ],
+                        // Close button (always visible)
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                            _toolBtn("Space",     () => _sendKey(' '), width: 110),
-                            const SizedBox(width: 10),
-                            _toolBtn("Enter",     () => _sendKey('Enter')),
-                            const SizedBox(width: 10),
-                            _toolBtn("⌫",        () => _sendKey('Backspace')),
-                          ]),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.only(bottom: 12, top: 4),
                           child: ElevatedButton(
                             onPressed: _togglePanel,
                             style: ElevatedButton.styleFrom(
@@ -3680,7 +3774,7 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(20)),
                             ),
-                            child: const Text("Close",
+                            child: const Text('Close',
                                 style: TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ),
@@ -3964,13 +4058,21 @@ class _FlappyFishGameState extends State<FlappyFishGame>
     final pipeW    = pipeWidth * sw;
     final gapPx    = pipeGap   * sh;
 
-    // Fallback colour layers (no image assets needed)
-    Widget bgLayer(Color c, double offset) => Positioned.fill(
+    // Background parallax helper — tries the sprite, falls back to colour
+    Widget bgLayer(String asset, Color fallback, double offset) => Positioned.fill(
       child: Transform.translate(
         offset: Offset(offset * sw, 0),
         child: Row(children: [
-          Expanded(child: Container(color: c)),
-          Expanded(child: Container(color: c)),
+          Expanded(
+            child: Image.asset(asset,
+              width: sw, height: sh, fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(color: fallback)),
+          ),
+          Expanded(
+            child: Image.asset(asset,
+              width: sw, height: sh, fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(color: fallback)),
+          ),
         ]),
       ),
     );
@@ -3982,10 +4084,10 @@ class _FlappyFishGameState extends State<FlappyFishGame>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Background layers
-            bgLayer(Colors.cyan.shade700, bgOffsetFar),
-            bgLayer(Colors.cyan.shade600, bgOffsetMid),
-            bgLayer(Colors.cyan.shade500, bgOffsetFore),
+            // Background layers — sprites load if present, colour fallback if not
+            bgLayer('assets/background_far.png', Colors.cyan.shade700, bgOffsetFar),
+            bgLayer('assets/background_mid.png', Colors.cyan.shade600, bgOffsetMid),
+            bgLayer('assets/background.png',     Colors.cyan.shade500, bgOffsetFore),
 
             // Top pipe
             Positioned(
@@ -4019,18 +4121,18 @@ class _FlappyFishGameState extends State<FlappyFishGame>
               ),
             ),
 
-            // Fish (emoji fallback — no asset needed)
+            // Fish — sprite if assets/fish.png exists, emoji fallback otherwise
             Positioned(
               left: sw * 0.12,
               top:  fishY * sh - fishSize / 2,
               child: Transform.rotate(
                 angle: (velocity / 15).clamp(-0.8, 0.8),
-                child: SizedBox(
-                  width: fishSize, height: fishSize,
-                  child: Center(
-                    child: Text("🐟",
-                      style: TextStyle(fontSize: fishSize * 0.8)),
-                  ),
+                child: Image.asset(
+                  'assets/fish.png',
+                  width: fishSize, height: fishSize, fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Center(
+                    child: Text('🐟',
+                      style: TextStyle(fontSize: fishSize * 0.8))),
                 ),
               ),
             ),
