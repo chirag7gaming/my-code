@@ -32,3 +32,7 @@ flutter:
   assets:
     - assets/ic_aero_windows.png
     - assets/ic_aero_android.png
+    - assets/background.png
+    - assets/background_far.png
+    - assets/background_mid.png
+    - assets/fish.png
