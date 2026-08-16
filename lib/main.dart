@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -88,6 +89,10 @@ class AppColors {
   static const Color linkBlue         = Color(0xFF33B5E5);
   static const Color gutterGray       = Color(0xFF37474F);
   static const Color editorBackground = Color(0xFF1E1E1E);
+  // ── Tutorial & WebRunner panel ────────────────────────────────────────────
+  static const Color panelBg      = Color(0xE6000000); // webrunner tool panel
+  static const Color tutorialBg   = Color(0xFF1a1a2e); // tutorial screen bg
+  static const Color tutorialCard = Color(0xFF16213e); // tutorial card bg
 }
 
 class AppTextStyles {
@@ -115,6 +120,263 @@ class AppTextStyles {
 // SECTION 2: DATA MODELS
 // -----------------------------------------------------------------------------
 
+
+// =============================================================================
+// STORAGE HELPER
+// =============================================================================
+
+class StorageHelper {
+  static Future<Directory> getBaseDirectory() async {
+    final externalDir = await getExternalStorageDirectory();
+    if (externalDir == null) throw Exception("Cannot access external storage");
+    String path = externalDir.path;
+    final androidIndex = path.indexOf('/Android/');
+    if (androidIndex != -1) path = path.substring(0, androidIndex);
+    final baseDir = Directory('$path/HTML Files');
+    if (!await baseDir.exists()) await baseDir.create(recursive: true);
+    return baseDir;
+  }
+
+  static Future<Directory> getFilesDirectory() async {
+    final base = await getBaseDirectory();
+    final dir  = Directory('${base.path}/Files');
+    if (!await dir.exists()) await dir.create();
+    return dir;
+  }
+
+  static Future<Directory> getZipsDirectory() async {
+    final base = await getBaseDirectory();
+    final dir  = Directory('${base.path}/ZIPs');
+    if (!await dir.exists()) await dir.create();
+    return dir;
+  }
+
+  static Future<String> getFilesPath() async => (await getFilesDirectory()).path;
+  static Future<String> getZipsPath()  async => (await getZipsDirectory()).path;
+}
+
+// =============================================================================
+// TUTORIAL
+// =============================================================================
+
+class TutorialItem {
+  final IconData  icon;
+  final String    title;
+  final String    description;
+  final List<String> steps;
+  const TutorialItem({required this.icon, required this.title,
+    required this.description, required this.steps});
+}
+
+class TutorialCard extends StatelessWidget {
+  final TutorialItem item;
+  const TutorialCard({Key? key, required this.item}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          Container(
+            width: 80, height: 80,
+            decoration: BoxDecoration(
+              color: AppColors.linkBlue.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(item.icon, size: 40, color: AppColors.linkBlue),
+          ),
+          const SizedBox(height: 20),
+          Text(item.title,
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
+            textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.tutorialCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.linkBlue.withOpacity(0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("📝 What is this?",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.linkBlue)),
+                const SizedBox(height: 8),
+                Text(item.description,
+                  style: const TextStyle(color: Colors.white70, height: 1.5)),
+                const SizedBox(height: 20),
+                const Text("📋 Step-by-Step:",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.linkBlue)),
+                const SizedBox(height: 12),
+                ...item.steps.asMap().entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(
+                      width: 24, height: 24,
+                      decoration: const BoxDecoration(color: AppColors.linkBlue, shape: BoxShape.circle),
+                      child: Center(child: Text("${e.key + 1}",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12))),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(e.value,
+                      style: const TextStyle(color: Colors.white70, height: 1.4))),
+                  ]),
+                )),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.linkBlue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(children: [
+              Icon(Icons.lightbulb, color: AppColors.folderYellow, size: 20),
+              SizedBox(width: 8),
+              Expanded(child: Text(
+                "💡 Access this tutorial anytime from ⚙️ Settings.",
+                style: TextStyle(color: Colors.white70, fontSize: 12))),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TutorialScreen extends StatefulWidget {
+  const TutorialScreen({Key? key}) : super(key: key);
+  @override
+  _TutorialScreenState createState() => _TutorialScreenState();
+}
+
+class _TutorialScreenState extends State<TutorialScreen> {
+  int _currentPage = 0;
+  final PageController _pageController = PageController();
+
+  static const _items = [
+    TutorialItem(
+      icon: Icons.folder_open, title: "📁 Creating Projects",
+      description: "Tap '+ Create Project' to start a new project.\n\nYou can import existing ZIP files as projects.\n\nProjects can have custom icons and descriptions.",
+      steps: ["Tap '+ Create Project' on the dashboard", "Choose 'Make New Project' or 'Import ZIP'",
+              "Enter project name and description", "Add existing files or start fresh", "Tap 'Create' to save"],
+    ),
+    TutorialItem(
+      icon: Icons.create_new_folder, title: "📂 Files & Folders",
+      description: "Create HTML files in your projects.\n\nUse '/' in filenames to create folders!\n\nExample: 'pages/about.html' creates a 'pages' folder.",
+      steps: ["Open a project or go to Files section", "Tap '+ Create File'",
+              "Enter filename (use / for folders)", "Write your HTML code", "Tap Save"],
+    ),
+    TutorialItem(
+      icon: Icons.drive_file_move, title: "🔄 Moving Files & Folders",
+      description: "Organize projects by moving files between folders.\n\nLong-press any file or folder to see options.",
+      steps: ["Long-press a file or folder", "Select 'Move' from the menu",
+              "Choose a destination folder", "Tap to confirm", "Item relocates instantly"],
+    ),
+    TutorialItem(
+      icon: Icons.edit_document, title: "✏️ Editing Code",
+      description: "The built-in editor has line numbers and a toolbar for quick HTML tags.\n\nSave your work with the 💾 button.",
+      steps: ["Tap any file to open the editor", "Write or paste HTML/CSS/JS",
+              "Use toolbar buttons for quick tags", "Tap 💾 Save", "Tap ▶️ Run to preview"],
+    ),
+    TutorialItem(
+      icon: Icons.preview, title: "🌐 HTML Preview",
+      description: "Preview HTML with a full WebView.\n\nButtons and scripts work like a real browser!\n\nTap ⚙️ for the floating keyboard toolkit.",
+      steps: ["Open any HTML file and tap Run", "View your page in the WebView",
+              "Tap ⚙️ for keyboard toolkit (great for games)", "Tap Refresh to reload", "Fullscreen mode available"],
+    ),
+    TutorialItem(
+      icon: Icons.settings, title: "⚙️ Settings & Themes",
+      description: "Customize your experience.\n\nSwitch between Light / Dark / System themes.\n\nManage permissions for privacy.",
+      steps: ["Tap your profile avatar in the app bar", "Select ⚙️ Settings",
+              "Change Theme", "Manage Permissions", "Download All Files to storage"],
+    ),
+    TutorialItem(
+      icon: Icons.celebration, title: "🎮 Easter Eggs",
+      description: "Tap the </> logo in the app bar 5 times to unlock Flappy Fish.\n\nMore secrets hidden throughout the app...",
+      steps: ["Tap the </> logo 5× quickly", "Watch it spin 🌀",
+              "Build info dialog appears", "Tap 'Play Flappy Fish'", "Try to beat the high score!"],
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.tutorialBg,
+      appBar: AppBar(
+        title: const Text("📖 HTML Runner Tutorial",
+          style: TextStyle(color: Colors.white)),
+        backgroundColor: AppColors.nostalgiaBlack,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Skip", style: TextStyle(color: Colors.white70)),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          LinearProgressIndicator(
+            value: (_currentPage + 1) / _items.length,
+            backgroundColor: Colors.grey.shade800,
+            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.linkBlue),
+          ),
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              onPageChanged: (p) => setState(() => _currentPage = p),
+              itemCount: _items.length,
+              itemBuilder: (_, i) => TutorialCard(item: _items[i]),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: _currentPage > 0 ? () => _pageController.previousPage(
+                    duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
+                  child: const Text("← Prev", style: TextStyle(color: Colors.white70)),
+                ),
+                Row(
+                  children: List.generate(_items.length, (i) => Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: 8, height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _currentPage == i ? AppColors.linkBlue : Colors.grey.shade600,
+                    ),
+                  )),
+                ),
+                if (_currentPage < _items.length - 1)
+                  TextButton(
+                    onPressed: () => _pageController.nextPage(
+                      duration: const Duration(milliseconds: 300), curve: Curves.easeInOut),
+                    child: const Text("Next →", style: TextStyle(color: Colors.white70)),
+                  )
+                else
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.androidGreen,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                    child: const Text("Get Started!"),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ProjectModel {
   String id;
   String name;
@@ -123,6 +385,7 @@ class ProjectModel {
   String createdAt;
   String lastModified;
   List<FileModel> files;
+  List<String>    folders; // virtual folder paths (e.g. "pages", "pages/css")
 
   ProjectModel({
     required this.id,
@@ -132,27 +395,117 @@ class ProjectModel {
     required this.createdAt,
     required this.lastModified,
     required this.files,
+    this.folders = const [],
   });
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'desc': description,
-    'icon': iconPath,
-    'created': createdAt,
+    'id':       id,
+    'name':     name,
+    'desc':     description,
+    'icon':     iconPath,
+    'created':  createdAt,
     'modified': lastModified,
-    'files': files.map((f) => f.toJson()).toList(),
+    'files':    files.map((f) => f.toJson()).toList(),
+    'folders':  folders,
   };
 
   factory ProjectModel.fromJson(Map<String, dynamic> json) => ProjectModel(
-    id: json['id'],
-    name: json['name'],
-    description: json['desc'] ?? "",
-    iconPath: json['icon'],
-    createdAt: json['created'] ?? "Unknown",
+    id:           json['id'],
+    name:         json['name'],
+    description:  json['desc'] ?? "",
+    iconPath:     json['icon'],
+    createdAt:    json['created'] ?? "Unknown",
     lastModified: json['modified'] ?? "Unknown",
-    files: (json['files'] as List).map((f) => FileModel.fromJson(f)).toList(),
+    files:   (json['files'] as List).map((f) => FileModel.fromJson(f)).toList(),
+    folders: List<String>.from(json['folders'] ?? []),
   );
+
+  // ── Folder helpers ──────────────────────────────────────────────────────
+
+  List<FileModel> getFilesInFolder(String folderPath) =>
+      files.where((f) => f.path == folderPath).toList();
+
+  List<String> getSubfolders(String parentPath) => folders.where((folder) {
+    if (parentPath.isEmpty) return !folder.contains('/');
+    return folder.startsWith('\$parentPath/') &&
+        folder.substring(parentPath.length + 1).contains('/') == false;
+  }).toList();
+
+  /// Create a file at "pages/about.html" — auto-creates parent folders.
+  void addFileWithPath(String fileNameWithPath, String content) {
+    String path = "";
+    String fileName = fileNameWithPath;
+    if (fileNameWithPath.contains('/')) {
+      path     = fileNameWithPath.substring(0, fileNameWithPath.lastIndexOf('/'));
+      fileName = fileNameWithPath.substring(fileNameWithPath.lastIndexOf('/') + 1);
+      // ensure every ancestor folder exists
+      String cur = "";
+      for (final part in path.split('/')) {
+        cur = cur.isEmpty ? part : '\$cur/\$part';
+        if (!folders.contains(cur)) folders.add(cur);
+      }
+    }
+    files.add(FileModel(
+      id:       DateTime.now().millisecondsSinceEpoch.toString(),
+      name:     fileName,
+      content:  content,
+      lastEdit: DateFormat('HH:mm').format(DateTime.now()),
+      path:     path,
+    ));
+  }
+
+  void moveFile(FileModel file, String newPath) {
+    files.remove(file);
+    file.path     = newPath;
+    file.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+    files.add(file);
+    _updateFolders();
+  }
+
+  void moveFolder(String oldPath, String newPath) {
+    for (final f in files) {
+      if (f.path == oldPath) {
+        f.path = newPath;
+      } else if (f.path.startsWith('\$oldPath/')) {
+        f.path = f.path.replaceFirst(oldPath, newPath);
+      }
+      f.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+    }
+    _updateFolders();
+  }
+
+  void renameFile(FileModel file, String newNameWithPath) {
+    String newPath = "";
+    String newName = newNameWithPath;
+    if (newNameWithPath.contains('/')) {
+      newPath = newNameWithPath.substring(0, newNameWithPath.lastIndexOf('/'));
+      newName = newNameWithPath.substring(newNameWithPath.lastIndexOf('/') + 1);
+      String cur = "";
+      for (final part in newPath.split('/')) {
+        cur = cur.isEmpty ? part : '\$cur/\$part';
+        if (!folders.contains(cur)) folders.add(cur);
+      }
+    }
+    file.name     = newName;
+    file.path     = newPath;
+    file.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+    _updateFolders();
+  }
+
+  void _updateFolders() {
+    final Set<String> rebuilt = {};
+    for (final f in files) {
+      if (f.path.isNotEmpty) {
+        rebuilt.add(f.path);
+        String cur = "";
+        for (final part in f.path.split('/')) {
+          cur = cur.isEmpty ? part : '\$cur/\$part';
+          rebuilt.add(cur);
+        }
+      }
+    }
+    folders = rebuilt.toList();
+  }
 }
 
 class FileModel {
@@ -160,30 +513,49 @@ class FileModel {
   String name;
   String content;
   String lastEdit;
+  String path;         // virtual folder path within a project, e.g. "pages"
+  String? externalPath; // real fs path — for imported binary files (images, etc.)
 
   FileModel({
     required this.id,
     required this.name,
     required this.content,
     required this.lastEdit,
+    this.path = "",
+    this.externalPath,
   });
 
+  // Extensions editable in the IDE
+  static const _editableExts = {'html', 'htm', 'html3', 'css', 'js'};
+
+  bool get isEditable {
+    final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
+    return _editableExts.contains(ext);
+  }
+
+  /// Binary files (images, pdfs, etc.) — open via Android "Open with..."
+  bool get isBinary => externalPath != null;
+
+  String get fullPath => path.isEmpty ? name : '$path/$name';
+
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'content': content,
-    'lastEdit': lastEdit,
+    'id':           id,
+    'name':         name,
+    'content':      content,
+    'lastEdit':     lastEdit,
+    'path':         path,
+    'externalPath': externalPath,
   };
 
   factory FileModel.fromJson(Map<String, dynamic> json) => FileModel(
-    id: json['id'],
-    name: json['name'],
-    content: json['content'],
-    lastEdit: json['lastEdit'] ?? "",
+    id:           json['id'],
+    name:         json['name'],
+    content:      json['content'] ?? '',
+    lastEdit:     json['lastEdit'] ?? '',
+    path:         json['path'] ?? '',
+    externalPath: json['externalPath'],
   );
 }
-
-// -----------------------------------------------------------------------------
 // SECTION 3: CORE APP WIDGET
 // -----------------------------------------------------------------------------
 
@@ -201,6 +573,56 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
   void initState() {
     super.initState();
     _loadThemePreference();
+    _setupStorage();
+    _createReadmeFile();
+    _checkFirstLaunch();
+  }
+
+  Future<void> _setupStorage() async {
+    try {
+      await StorageHelper.getBaseDirectory();
+      await StorageHelper.getFilesDirectory();
+      await StorageHelper.getZipsDirectory();
+    } catch (e) {
+      debugPrint('Storage setup error: \$e');
+    }
+  }
+
+  Future<void> _createReadmeFile() async {
+    try {
+      final directory = await getExternalStorageDirectory();
+      if (directory == null) return;
+      final readmeFile = File('\${directory.path}/App Data/README.txt');
+      await readmeFile.parent.create(recursive: true);
+      if (!await readmeFile.exists()) {
+        const content =
+          "# HTML Runner v1.6.7\n"
+          "A local HTML IDE with projects, folders, and a code editor.\n\n"
+          "## Exported files\n"
+          "  HTML Files/Files/   — individual downloaded HTML files\n"
+          "  HTML Files/ZIPs/    — exported project ZIP archives\n\n"
+          "## License\n"
+          "MIT License — credit: Chirag Shylendra (@chirag7gaming)\n";
+        await readmeFile.writeAsString(content);
+      }
+    } catch (e) {
+      debugPrint('README write error: \$e');
+    }
+  }
+
+  Future<void> _checkFirstLaunch() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen  = prefs.getBool('has_seen_tutorial') ?? false;
+    if (!seen && mounted) {
+      await prefs.setBool('has_seen_tutorial', true);
+      // Wait for the widget tree to settle before pushing
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const TutorialScreen()));
+        }
+      });
+    }
   }
 
   Future<void> _loadThemePreference() async {
@@ -422,6 +844,12 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   FishGangUser? _currentUser;
   bool _isLocalMode = false;
   bool _isSyncing = false;
+  // move-file system
+  ProjectModel? _activeProject; // project being moved within
+  dynamic      _itemToMove;
+  bool         _isMovingFile  = false;
+  String       _movingItemName = '';
+  String       _movingItemPath = '';
   
   // Data Storage
   List<ProjectModel> _projects = [];
@@ -738,81 +1166,72 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     });
   }
 
-void _showBuildInfoDialog() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Column(
-        children: [
-          Image.network(
-            'https://i.postimg.cc/44BvYKKb/1771592172406.png',
-            height: 60,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
-              // Fallback: plain text header when image fails
-              return Column(
+  void _showBuildInfoDialog() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("🛠️ Build Info", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildInfoRow("📱", "App Name",    "HTML Runner"),
+              _buildInfoRow("🔢", "Version",     "1.6.7+1"),
+              _buildInfoRow("📝", "Lines",       "~2700 lines"),
+              _buildInfoRow("🎨", "UI Style",    "Android 4.2 Jellybean"),
+              _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
+              _buildInfoRow("🔧", "SDK",         "Android SDK 36"),
+              _buildInfoRow("📦", "Package",     "com.chirag.html_runner"),
+              _buildInfoRow("👨\u200d💻", "Dev", "Chirag Shylendra"),
+              _buildInfoRow("🐙", "GitHub",      "@chirag7gaming"),
+              _buildInfoRow("⚖️", "License",     "MIT License"),
+              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67🐾"),
+              const SizedBox(height: 8),
+              const Text(
+                "Made in 🇮🇳 with ❤️  •  Zero ads. Forever free.",
+                style: TextStyle(fontStyle: FontStyle.italic, fontSize: 11),
+              ),
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  Text(
-                    "Fish Gang Co.",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.linkBlue,
-                      fontFamily: 'monospace', // Optional: system font
+                  const Text("🎮 ", style: TextStyle(fontSize: 16)),
+                  const Text("Easter Egg: ",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => const FlappyFishGame(),
+                      ));
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.linkBlue,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text("Play Flappy Fish",
+                        style: TextStyle(color: Colors.white,
+                          fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    "(Image failed to load)",
-                    style: TextStyle(fontSize: 10, color: Colors.grey),
-                  ),
                 ],
-              );
-            },
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close",
+              style: TextStyle(color: AppColors.androidGreen)),
+          ),
         ],
       ),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildInfoRow("📱", "App Name", "HTML Runner"),
-            _buildInfoRow("🔢", "Version", "1.6.7+1"),
-            _buildInfoRow("📅", "Release Date", "Feb 20, 2025"),
-            _buildInfoRow("⏱️", "Build Time", "2 hours"),
-            _buildInfoRow("📝", "Lines of Code", "2001 lines"),
-            _buildInfoRow("🎨", "UI Style", "Android 4.2 Jellybean"),
-            _buildInfoRow("💚", "Framework", "Flutter/Dart"),
-            _buildInfoRow("🔧", "Build Tools", "Android SDK 35"),
-            _buildInfoRow("📦", "Package", "com.chirag.html_runner"),
-            _buildInfoRow("👨‍💻", "Developer", "Chirag Shylendra"),
-            _buildInfoRow("🐙", "GitHub", "@chirag7gaming"),
-            _buildInfoRow("⚖️", "License", "MIT License"),
-            _buildInfoRow("🎯", "Purpose", "Free HTML IDE"),
-            _buildInfoRow("💡", "Inspiration", "Black India Day"),
-            _buildInfoRow("🚀", "Features", "Projects, Editor, Sync"),
-            _buildInfoRow("🎮", "Easter Egg", "You found it! 🎉"),
-            const SizedBox(height: 16),
-            const Text(
-              "Made in 🇮🇳 with ❤️\nZero ads. Forever free.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Close", style: TextStyle(color: AppColors.androidGreen)),
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildInfoRow(String emoji, String label, String value) {
     return Padding(
@@ -839,7 +1258,315 @@ void _showBuildInfoDialog() {
 
   // --- FILE OPERATIONS ---
 
-  void _showFileCreationMenu() {
+  void _openWithSystem(FileModel file) async {
+    final resolved = file.externalPath;
+    if (resolved == null || resolved.isEmpty) {
+      Fluttertoast.showToast(msg: "No file path — reimport this file to open with another app");
+      return;
+    }
+    final result = await OpenFile.open(resolved);
+    if (result.type != ResultType.done) {
+      Fluttertoast.showToast(msg: "No app found to open this file type");
+    }
+  }
+
+  // --- IMPORT PROJECT ZIP (folder-aware) ---
+
+  Future<void> _importProjectZip() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+          type: FileType.custom, allowedExtensions: ['zip']);
+      if (result == null || result.files.single.path == null) return;
+
+      final zipFile = File(result.files.single.path!);
+      final archive = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
+
+      final List<FileModel> extracted = [];
+      final List<String>    skipped   = [];
+      final Set<String>     folders   = {};
+
+      for (final entry in archive) {
+        if (!entry.isFile) continue;
+        final fullPath  = entry.name;
+        final fileName  = fullPath.split('/').last;
+        final folderPath = fullPath.contains('/')
+            ? fullPath.substring(0, fullPath.lastIndexOf('/'))
+            : "";
+
+        if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
+          final content = utf8.decode(entry.content as List<int>);
+          extracted.add(FileModel(
+            id:       DateTime.now().millisecondsSinceEpoch.toString() + fullPath,
+            name:     fileName,
+            content:  content,
+            lastEdit: DateFormat('HH:mm').format(DateTime.now()),
+            path:     folderPath,
+          ));
+          if (folderPath.isNotEmpty) {
+            folders.add(folderPath);
+            String cur = "";
+            for (final part in folderPath.split('/')) {
+              cur = cur.isEmpty ? part : '\$cur/\$part';
+              folders.add(cur);
+            }
+          }
+        } else {
+          skipped.add(fullPath);
+        }
+      }
+
+      if (skipped.isNotEmpty && mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("Import Warning",
+                style: TextStyle(color: AppColors.errorRed)),
+            content: Text("\${skipped.length} non-HTML file(s) were skipped:\n"
+                "\${skipped.take(5).join(', ')}"
+                "\${skipped.length > 5 ? '...' : ''}"),
+            actions: [TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"))],
+          ),
+        );
+      }
+
+      if (extracted.isNotEmpty) {
+        final projectName =
+            result.files.single.name.replaceAll('.zip', '');
+        setState(() {
+          _projects.add(ProjectModel(
+            id:           DateTime.now().millisecondsSinceEpoch.toString(),
+            name:         projectName,
+            description:  "Imported from ZIP",
+            createdAt:    DateFormat('yyyy-MM-dd').format(DateTime.now()),
+            lastModified: DateFormat('HH:mm').format(DateTime.now()),
+            files:   extracted,
+            folders: folders.toList(),
+          ));
+        });
+        _saveData();
+        Fluttertoast.showToast(
+            msg: "Imported \${extracted.length} files as '\$projectName'",
+            backgroundColor: AppColors.androidGreen);
+      } else if (skipped.isNotEmpty) {
+        Fluttertoast.showToast(
+            msg: "No HTML files found in ZIP",
+            backgroundColor: AppColors.errorRed);
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: "Failed to import ZIP: \$e");
+    }
+  }
+
+  // --- FOLDER OPTIONS ---
+
+  void _showFolderOptions(ProjectModel project, String folderPath) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.drive_file_rename_outline),
+            title: const Text("Rename Folder"),
+            onTap: () { Navigator.pop(context); _renameFolder(project, folderPath); },
+          ),
+          ListTile(
+            leading: const Icon(Icons.drive_folder_upload),
+            title: const Text("Move Folder"),
+            onTap: () { Navigator.pop(context); _startMoveFolder(project, folderPath); },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete, color: AppColors.errorRed),
+            title: const Text("Delete Folder", style: TextStyle(color: AppColors.errorRed)),
+            onTap: () {
+              Navigator.pop(context);
+              _showDeleteConfirmation(() {
+                setState(() {
+                  project.files.removeWhere((f) =>
+                      f.path == folderPath || f.path.startsWith('\$folderPath/'));
+                  project.folders.removeWhere((f) =>
+                      f == folderPath || f.startsWith('\$folderPath/'));
+                });
+                _saveData();
+                Fluttertoast.showToast(msg: "Folder deleted");
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _renameFolder(ProjectModel project, String oldPath) {
+    final ctrl = TextEditingController(text: oldPath.split('/').last);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Rename Folder"),
+        content: TextField(
+          controller: ctrl, autofocus: true,
+          decoration: const InputDecoration(
+              labelText: "New folder name", border: OutlineInputBorder())),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              final newName = ctrl.text.trim();
+              if (newName.isEmpty) {
+                Fluttertoast.showToast(msg: "Folder name cannot be empty");
+                return;
+              }
+              final parent  = oldPath.contains('/')
+                  ? oldPath.substring(0, oldPath.lastIndexOf('/'))
+                  : "";
+              final newPath = parent.isEmpty ? newName : '\$parent/\$newName';
+              for (final f in project.files) {
+                if (f.path == oldPath) f.path = newPath;
+                else if (f.path.startsWith('\$oldPath/')) {
+                  f.path = f.path.replaceFirst(oldPath, newPath);
+                }
+              }
+              project.folders = project.folders.map((f) {
+                if (f == oldPath) return newPath;
+                if (f.startsWith('\$oldPath/')) return f.replaceFirst(oldPath, newPath);
+                return f;
+              }).toList();
+              Navigator.pop(ctx);
+              _saveData();
+              setState(() {});
+              Fluttertoast.showToast(msg: "Renamed to \$newName");
+            },
+            child: const Text("Rename"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- MOVE FILE / FOLDER WITHIN PROJECT ---
+
+  void _startMoveFile(ProjectModel project, FileModel file) {
+    _activeProject  = project;
+    _itemToMove     = file;
+    _isMovingFile   = true;
+    _movingItemName = file.name;
+    _movingItemPath = file.path;
+    _showMoveDestinationPicker();
+  }
+
+  void _startMoveFolder(ProjectModel project, String folderPath) {
+    _activeProject  = project;
+    _itemToMove     = folderPath;
+    _isMovingFile   = false;
+    _movingItemName = folderPath.split('/').last;
+    _movingItemPath = folderPath;
+    _showMoveDestinationPicker();
+  }
+
+  void _showMoveDestinationPicker() {
+    if (_activeProject == null) return;
+    final destinations = ["(Root)", ..._activeProject!.folders];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text("Move \${_isMovingFile ? 'File' : 'Folder'}: \$_movingItemName"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: destinations.map((dest) {
+              final targetPath = dest == "(Root)" ? "" : dest;
+              return ListTile(
+                leading: Icon(
+                    dest == "(Root)" ? Icons.folder_open : Icons.folder,
+                    color: AppColors.folderYellow),
+                title: Text(dest == "(Root)" ? "Root Directory" : dest),
+                onTap: () {
+                  if (_movingItemPath == targetPath) {
+                    Navigator.pop(context);
+                    Fluttertoast.showToast(msg: "Already in this location");
+                    return;
+                  }
+                  if (_isMovingFile && _itemToMove is FileModel) {
+                    _activeProject!.moveFile(_itemToMove as FileModel, targetPath);
+                  } else if (!_isMovingFile && _itemToMove is String) {
+                    if (targetPath.startsWith(_movingItemPath) &&
+                        _movingItemPath.isNotEmpty) {
+                      Navigator.pop(context);
+                      Fluttertoast.showToast(msg: "Cannot move a folder into itself");
+                      return;
+                    }
+                    _activeProject!.moveFolder(_movingItemPath, targetPath);
+                  }
+                  Navigator.pop(context);
+                  _saveData();
+                  setState(() {});
+                  Fluttertoast.showToast(msg: "Moved successfully!");
+                },
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"))],
+      ),
+    );
+  }
+
+  /// Writes all project files (including binary assets) to a temp directory,
+  /// then opens WebRunnerScreen using loadFile() so relative paths resolve.
+  Future<void> _writeProjectToTempAndRun(
+      ProjectModel project, FileModel mainFile, String? overrideContent) async {
+    try {
+      final tmpDir  = await getTemporaryDirectory();
+      final projDir = Directory('${tmpDir.path}/htmlrunner_preview');
+      if (await projDir.exists()) await projDir.delete(recursive: true);
+      await projDir.create(recursive: true);
+
+      for (final f in project.files) {
+        final subDir = f.path.isNotEmpty
+            ? Directory('${projDir.path}/${f.path}')
+            : projDir;
+        await subDir.create(recursive: true);
+        final dest = '${subDir.path}/${f.name}';
+
+        if (f.isBinary && f.externalPath != null) {
+          await File(f.externalPath!).copy(dest);
+        } else {
+          final content = (overrideContent != null && f.id == mainFile.id)
+              ? overrideContent
+              : f.content;
+          await File(dest).writeAsString(content);
+        }
+      }
+
+      // If the file being previewed isn't saved yet, write current content
+      final mainInProject = project.files.any((f) => f.id == mainFile.id);
+      final mainSubDir = mainFile.path.isNotEmpty
+          ? Directory('${projDir.path}/${mainFile.path}')
+          : projDir;
+      await mainSubDir.create(recursive: true);
+      final mainPath = '${mainSubDir.path}/${mainFile.name}';
+
+      if (!mainInProject) {
+        await File(mainPath).writeAsString(overrideContent ?? mainFile.content);
+      }
+
+      if (!mounted) return;
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => WebRunnerScreen(filePath: mainPath),
+      ));
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Preview failed: $e');
+    }
+  }
+
+    void _showFileCreationMenu() {
     final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
@@ -866,6 +1593,7 @@ void _showBuildInfoDialog() {
             ListTile(
               leading: const Icon(Icons.edit_document, color: AppColors.linkBlue),
               title: const Text("Create New HTML"),
+              subtitle: const Text("Also supports .css  .js  .html3", style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(context);
                 _openCodeEditor(null);
@@ -880,6 +1608,15 @@ void _showBuildInfoDialog() {
                 _importAnyFile();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.folder_zip, color: AppColors.folderYellow),
+              title: const Text("Import ZIP as Project"),
+              subtitle: const Text("Extracts HTML files + folders from a .zip", style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.pop(context);
+                _importProjectZip();
+              },
+            ),
             const SizedBox(height: 20),
           ],
         ),
@@ -889,37 +1626,39 @@ void _showBuildInfoDialog() {
 
   Future<void> _importAnyFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-      );
+      final result = await FilePicker.platform.pickFiles(type: FileType.any);
       if (result == null) return;
-
       final picked = result.files.first;
-      final name = picked.name;
-      final path = picked.path;
+      final name   = picked.name;
+      final path   = picked.path;
+      if (path == null) { Fluttertoast.showToast(msg: "Could not get file path."); return; }
 
-      // Non-HTML: hand off to Android's "Open with..." and don't import
-      if (!name.toLowerCase().endsWith('.html')) {
-        if (path != null) {
-          await OpenFile.open(path);
-        } else {
-          Fluttertoast.showToast(msg: "Cannot open this file type.");
-        }
-        return;
-      }
+      final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
+      const editable = {'html', 'htm', 'html3', 'css', 'js'};
 
-      // HTML: import into the editor as usual
-      if (path == null) {
-        Fluttertoast.showToast(msg: "Could not read file path.");
-        return;
+      if (editable.contains(ext)) {
+        // Read as text and open in the IDE editor
+        final content = await File(path).readAsString();
+        _openCodeEditor(FileModel(
+          id:       DateTime.now().millisecondsSinceEpoch.toString(),
+          name:     name,
+          content:  content,
+          lastEdit: DateFormat('HH:mm').format(DateTime.now()),
+        ));
+      } else {
+        // Binary file — add to standalone files with externalPath so it can
+        // be tapped to open with the Android system chooser, or added to projects.
+        final file = FileModel(
+          id:           DateTime.now().millisecondsSinceEpoch.toString(),
+          name:         name,
+          content:      '',
+          lastEdit:     DateFormat('HH:mm').format(DateTime.now()),
+          externalPath: path,
+        );
+        setState(() => _standaloneFiles.add(file));
+        _saveData();
+        Fluttertoast.showToast(msg: "Added \"$name\" — tap to open with system");
       }
-      final content = await File(path).readAsString();
-      _openCodeEditor(FileModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: name,
-        content: content,
-        lastEdit: DateFormat('HH:mm').format(DateTime.now()),
-      ));
     } catch (e) {
       Fluttertoast.showToast(msg: "Import failed: $e");
     }
@@ -1061,7 +1800,7 @@ void _showBuildInfoDialog() {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.nostalgiaBlack,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildNostalgicAppBar(),
       body: body,
     );
@@ -1135,12 +1874,13 @@ void _showBuildInfoDialog() {
   }
 
   Widget _buildPermissionsScreen() {
-    const bg     = AppColors.nostalgiaBlack;
-    const panel  = AppColors.holoPanelBg;
-    const panel2 = AppColors.holoPanelBg2;
-    const div    = AppColors.holoDivider;
-    const txtPri = AppColors.holoTextPrimary;
-    const txtSec = AppColors.holoTextSecond;
+    final _t     = Theme.of(context);
+    final bg     = _t.scaffoldBackgroundColor;
+    final panel  = _t.cardColor;
+    final panel2 = _t.colorScheme.surface;
+    final div    = _t.dividerColor;
+    final txtPri = _t.colorScheme.onSurface;
+    final txtSec = _t.colorScheme.onSurface.withOpacity(0.6);
 
     final perms = [
       {'icon': Icons.folder_open,   'name': 'Storage',         'desc': 'Read and write files for your HTML projects and exports.'},
@@ -1538,10 +2278,15 @@ void _showBuildInfoDialog() {
     ));
   }
 
+  /// Open a file for editing. If the file is binary (image, pdf, etc.),
+  /// hand it off to the Android "Open with..." dialog instead.
   void _openCodeEditor(FileModel? file, {ProjectModel? project}) {
+    if (file != null && file.isBinary) { _openWithSystem(file); return; }
+    if (file != null && !file.isEditable) { _openWithSystem(file); return; }
     Navigator.push(context, MaterialPageRoute(
       builder: (context) => IDEEditorScreen(
         file: file,
+        project: project,
         onSave: (name, content) {
           setState(() {
             if (file == null) {
@@ -1642,14 +2387,39 @@ void _showBuildInfoDialog() {
               _downloadFile(file);
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.play_arrow),
-            title: const Text("Run"),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => WebRunnerScreen(htmlContent: file.content)));
-            },
-          ),
+          if (project != null)
+            ListTile(
+              leading: const Icon(Icons.drive_file_move, color: AppColors.linkBlue),
+              title: const Text("Move to folder..."),
+              onTap: () {
+                Navigator.pop(context);
+                _startMoveFile(project, file);
+              },
+            ),
+          if (project == null && _projects.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.drive_file_move, color: AppColors.folderYellow),
+              title: const Text("Add to existing project..."),
+              onTap: () {
+                Navigator.pop(context);
+                _showAddToProjectDialog(file);
+              },
+            ),
+          if (!file.isBinary)
+            ListTile(
+              leading: const Icon(Icons.play_arrow),
+              title: const Text("Run"),
+              onTap: () {
+                Navigator.pop(context);
+                if (project != null) {
+                  _writeProjectToTempAndRun(project, file, null);
+                } else {
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => WebRunnerScreen(
+                      htmlContent: _buildPreviewHtml(file.name, file.content))));
+                }
+              },
+            ),
           ListTile(
             leading: const Icon(Icons.delete, color: AppColors.errorRed),
             title: const Text("Delete", style: TextStyle(color: AppColors.errorRed)),
@@ -1667,6 +2437,36 @@ void _showBuildInfoDialog() {
               });
             },
           ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddToProjectDialog(FileModel file) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const ListTile(
+            title: Text("Add to project", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const Divider(height: 0),
+          ..._projects.map((p) => ListTile(
+            leading: const Icon(Icons.folder, color: AppColors.folderYellow),
+            title: Text(p.name),
+            onTap: () {
+              Navigator.pop(context);
+              setState(() {
+                if (!p.files.contains(file)) {
+                  p.files.add(file);
+                  _standaloneFiles.remove(file);
+                }
+              });
+              _saveData();
+              Fluttertoast.showToast(msg: "Added \"${file.name}\" to ${p.name}");
+            },
+          )),
         ],
       ),
     );
@@ -1703,6 +2503,16 @@ void _showBuildInfoDialog() {
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          ListTile(
+            leading: const Icon(Icons.menu_book, color: AppColors.linkBlue),
+            title: const Text("Help / Tutorial"),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const TutorialScreen()));
+            },
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.file_download),
             title: const Text("Download All Files"),
@@ -2014,6 +2824,18 @@ class FileTile extends StatelessWidget {
     required this.onLongPress,
   });
 
+  static IconData _iconFor(FileModel f) {
+    if (f.isBinary) {
+      final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+      if ({'jpg','jpeg','png','gif','webp','bmp','svg'}.contains(ext)) return Icons.image;
+      if ({'mp4','mov','avi','mkv','webm'}.contains(ext))              return Icons.videocam;
+      if ({'mp3','wav','ogg','aac','flac'}.contains(ext))              return Icons.audiotrack;
+      if (ext == 'pdf')                                                return Icons.picture_as_pdf;
+      return Icons.attach_file;
+    }
+    return Icons.html;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -2021,9 +2843,12 @@ class FileTile extends StatelessWidget {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
       child: ListTile(
-        leading: const Icon(Icons.html, color: AppColors.folderYellow, size: 32),
+        leading: Icon(_iconFor(file),
+          color: file.isBinary ? Colors.grey.shade400 : AppColors.folderYellow, size: 32),
         title: Text(file.name, style: const TextStyle(fontWeight: FontWeight.w500)),
-        subtitle: Text("Last edited: ${file.lastEdit}", style: const TextStyle(fontSize: 12)),
+        subtitle: Text(
+          file.isBinary ? "Tap to open with system app" : "Last edited: ${file.lastEdit}",
+          style: const TextStyle(fontSize: 12)),
         onTap: onTap,
         onLongPress: onLongPress,
       ),
@@ -2231,6 +3056,7 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
   }
 
   void _updateLineCount() {
+    if (!mounted) return; // guard: listener can fire after dispose
     final lines = '\n'.allMatches(widget.controller.text).length + 1;
     if (_lineCount != lines) setState(() => _lineCount = lines);
   }
@@ -2252,9 +3078,12 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
       child: AnimatedBuilder(
         animation: widget.scrollController,
         builder: (context, _) {
-          final offset = widget.scrollController.hasClients
-              ? widget.scrollController.offset
-              : 0.0;
+          double offset = 0.0;
+          try {
+            if (widget.scrollController.hasClients) {
+              offset = widget.scrollController.offset;
+            }
+          } catch (_) {}
           // Translate the whole column upward by the scroll offset —
           // no ListView gaps, no white bottom, perfectly in sync.
           return Transform.translate(
@@ -2285,9 +3114,10 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
 
 class IDEEditorScreen extends StatefulWidget {
   final FileModel? file;
+  final ProjectModel? project; // if set, Run writes all files to temp for relative-path support
   final Function(String, String) onSave;
 
-  const IDEEditorScreen({this.file, required this.onSave});
+  const IDEEditorScreen({this.file, this.project, required this.onSave});
 
   @override
   _IDEEditorScreenState createState() => _IDEEditorScreenState();
@@ -2345,6 +3175,107 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
     return shouldExit;
   }
 
+  Future<void> _runPreview() async {
+    final project = widget.project;
+    final file    = widget.file;
+
+    // If editing within a project, write all assets to temp dir so relative
+    // paths (images, stylesheets, scripts) resolve correctly in the WebView.
+    if (project != null && file != null) {
+      try {
+        final tmpDir  = await getTemporaryDirectory();
+        final projDir = Directory('${tmpDir.path}/htmlrunner_preview');
+        if (await projDir.exists()) await projDir.delete(recursive: true);
+        await projDir.create(recursive: true);
+
+        for (final f in project.files) {
+          final subDir = f.path.isNotEmpty
+              ? Directory('${projDir.path}/${f.path}')
+              : projDir;
+          await subDir.create(recursive: true);
+          final dest = '${subDir.path}/${f.name}';
+          if (f.isBinary && f.externalPath != null) {
+            await File(f.externalPath!).copy(dest);
+          } else {
+            // Use editor's live content for the file currently being edited
+            final content = f.id == file.id ? _codeController.text : f.content;
+            await File(dest).writeAsString(content);
+          }
+        }
+
+        final mainSubDir = file.path.isNotEmpty
+            ? Directory('${projDir.path}/${file.path}')
+            : projDir;
+        await mainSubDir.create(recursive: true);
+        final mainPath = '${mainSubDir.path}/${_nameController.text}';
+
+        // Write current editor content (may not be saved yet)
+        await File(mainPath).writeAsString(_codeController.text);
+
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => WebRunnerScreen(filePath: mainPath),
+        ));
+      } catch (e) {
+        Fluttertoast.showToast(msg: 'Preview error: $e');
+      }
+      return;
+    }
+
+    // Standalone file — no assets to resolve, use htmlContent
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => WebRunnerScreen(
+        htmlContent: _buildPreviewHtml(_nameController.text, _codeController.text)),
+    ));
+  }
+
+    void _showRenameDialog() {
+    final renameCtrl = TextEditingController(text: _nameController.text);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Rename / Move File"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Use / to create folders, e.g. pages/about.html",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: renameCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: "File path",
+                hintText: "e.g. index.html or pages/about.html",
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              String newPath = renameCtrl.text.trim();
+              if (newPath.isEmpty) return;
+              if (!newPath.endsWith('.html')) newPath = '$newPath.html';
+              setState(() => _nameController.text = newPath);
+              Navigator.pop(ctx);
+              Fluttertoast.showToast(msg: "Renamed to $newPath");
+            },
+            child: const Text("Rename"),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _insertTag(String tag) {
     final text = _codeController.text;
     final selection = _codeController.selection;
@@ -2376,16 +3307,17 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: AppColors.nostalgiaBlack,
-          title: TextField(
-            controller: _nameController,
-            style: const TextStyle(color: Colors.white, fontSize: 18),
-            decoration: const InputDecoration(
-              border: InputBorder.none, 
-              hintText: "Filename", 
-              hintStyle: TextStyle(color: Colors.grey)
-            ),
+          title: Text(
+            _nameController.text.isNotEmpty ? _nameController.text : "index.html",
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+            overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.drive_file_rename_outline, color: AppColors.linkBlue),
+              tooltip: "Rename / Move File",
+              onPressed: _showRenameDialog,
+            ),
             IconButton(
               icon: const Icon(Icons.undo), 
               onPressed: () => _undoController.undo()
@@ -2400,14 +3332,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
             ),
             IconButton(
               icon: const Icon(Icons.play_arrow, color: Colors.orange),
-              onPressed: () {
-                Navigator.push(
-                  context, 
-                  MaterialPageRoute(
-                    builder: (_) => WebRunnerScreen(htmlContent: _codeController.text)
-                  )
-                );
-              },
+              onPressed: _runPreview,
             ),
             IconButton(
               icon: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
@@ -2486,47 +3411,287 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
 // -----------------------------------------------------------------------------
 
 class WebRunnerScreen extends StatefulWidget {
-  final String htmlContent;
-  const WebRunnerScreen({required this.htmlContent});
+  final String? htmlContent;
+  final String? filePath; // when set, loaded via loadFile() for relative-path support
+  const WebRunnerScreen({this.htmlContent, this.filePath})
+      : assert(htmlContent != null || filePath != null, 'Provide either htmlContent or filePath');
 
   @override
   State<WebRunnerScreen> createState() => _WebRunnerScreenState();
 }
 
-class _WebRunnerScreenState extends State<WebRunnerScreen> {
-  late final WebViewController controller;
+class _WebRunnerScreenState extends State<WebRunnerScreen>
+    with TickerProviderStateMixin {
+  late final WebViewController _controller;
+  bool _isLoading    = true;
+  bool _showToolPanel = false;
+  late AnimationController _panelAnimation;
+  late Animation<double>   _panelSlide;
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    controller = WebViewController()
+    _panelAnimation = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 300));
+    _panelSlide = Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(parent: _panelAnimation, curve: Curves.easeOut));
+    _initWebView();
+  }
+
+  @override
+  void dispose() {
+    _panelAnimation.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initWebView() async {
+    final wvc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            controller.runJavaScript('''
-              if (!document.querySelector('meta[name="viewport"]')) {
-                const meta = document.createElement('meta');
-                meta.name = 'viewport';
-                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes';
-                document.head.appendChild(meta);
-              }
-            ''');
-          },
-        ),
-      )
-      ..loadHtmlString(widget.htmlContent);
+      ..setNavigationDelegate(NavigationDelegate(
+        onPageStarted:  (_) => setState(() => _isLoading = true),
+        onPageFinished: (_) {
+          setState(() => _isLoading = false);
+          _injectTouchHandling(wvc);
+        },
+        onNavigationRequest: (_) => NavigationDecision.navigate,
+        onWebResourceError: (e) => debugPrint('WebView: \${e.description}'),
+      ))
+      ..enableZoom(true)
+      ..loadHtmlString(''); // placeholder — actual load below
+    ;
+    if (widget.filePath != null) {
+      await wvc.loadFile(widget.filePath!);
+    } else {
+      await wvc.loadHtmlString(widget.htmlContent ?? '');
+    }
+
+    if (Platform.isAndroid) await _setupAndroidFileUpload(wvc);
+    setState(() => _controller = wvc);
   }
+
+  Future<void> _setupAndroidFileUpload(WebViewController wvc) async {
+    final androidCtrl = wvc.platform as AndroidWebViewController;
+    androidCtrl.setOnShowFileSelector((params) async {
+      try {
+        final isCapture  = params.isCaptureEnabled;
+        final isMultiple = params.mode.toString().contains('MULTIPLE');
+        final types      = params.acceptTypes;
+
+        if (isCapture) {
+          if (types.any((t) => t.contains('image'))) {
+            if (!await _requestPermission(Permission.camera)) return [];
+            final photo = await _imagePicker.pickImage(
+                source: ImageSource.camera, maxWidth: 4096, maxHeight: 4096, imageQuality: 85);
+            return photo != null ? [Uri.file(photo.path).toString()] : [];
+          } else if (types.any((t) => t.contains('video'))) {
+            if (!await _requestPermission(Permission.camera)) return [];
+            if (!await _requestPermission(Permission.microphone)) return [];
+            final video = await _imagePicker.pickVideo(
+                source: ImageSource.camera, maxDuration: const Duration(minutes: 30));
+            return video != null ? [Uri.file(video.path).toString()] : [];
+          }
+        }
+
+        final exts = _extensionsFrom(types);
+        if (!await _requestPermission(Permission.storage)) return [];
+        final result = await FilePicker.platform.pickFiles(
+            allowMultiple: isMultiple, allowedExtensions: exts, withData: false);
+        if (result == null) return [];
+        return result.files
+            .where((f) => f.path != null)
+            .map((f) => Uri.file(f.path!).toString())
+            .toList();
+      } catch (e) {
+        debugPrint('File picker error: \$e');
+        return [];
+      }
+    });
+  }
+
+  Future<bool> _requestPermission(Permission p) async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode  = prefs.getString('permission_mode') ?? "ask";
+    final alwaysAllow = prefs.getBool('perm_\${p.toString().split('.').last}') ?? false;
+    if (mode == "always" && alwaysAllow) {
+      return (await p.request()).isGranted;
+    }
+    return (await p.request()).isGranted;
+  }
+
+  List<String>? _extensionsFrom(List<String> types) {
+    if (types.isEmpty) return null;
+    const map = <String, List<String>>{
+      'image/*':  ['jpg','jpeg','png','gif','webp','bmp','svg'],
+      'video/*':  ['mp4','mov','avi','mkv','webm'],
+      'audio/*':  ['mp3','wav','ogg','aac','flac'],
+      'text/html':['html','htm'],
+      'text/css': ['css'],
+      'text/javascript': ['js'],
+      'application/pdf': ['pdf'],
+      'application/zip': ['zip'],
+    };
+    final exts = <String>{};
+    for (final t in types) {
+      if (map.containsKey(t)) { exts.addAll(map[t]!); continue; }
+      final wild = '\${t.split('/')[0]}/*';
+      if (map.containsKey(wild)) { exts.addAll(map[wild]!); continue; }
+      if (t.startsWith('.')) exts.add(t.substring(1));
+    }
+    return exts.isEmpty ? null : exts.toList();
+  }
+
+  void _injectTouchHandling(WebViewController wvc) {
+    wvc.runJavaScript("""
+      if (!document.querySelector('meta[name="viewport"]')) {
+        const m = document.createElement('meta');
+        m.name = 'viewport';
+        m.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+        document.head.appendChild(m);
+      }
+      document.body.style.touchAction = 'manipulation';
+    """);
+  }
+
+  void _sendKey(String key) => _controller.runJavaScript(
+      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'\$key',bubbles:true}));");
+
+  void _sendArrow(String dir) {
+    final codes = {'up':38,'down':40,'left':37,'right':39};
+    final keys  = {'up':'ArrowUp','down':'ArrowDown','left':'ArrowLeft','right':'ArrowRight'};
+    _controller.runJavaScript(
+        "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',"
+        "{key:'\${keys[dir]}',code:'\${keys[dir]}',keyCode:\${codes[dir]},bubbles:true}));");
+  }
+
+  void _togglePanel() {
+    setState(() {
+      _showToolPanel = !_showToolPanel;
+      _showToolPanel ? _panelAnimation.forward() : _panelAnimation.reverse();
+    });
+  }
+
+  Widget _toolBtn(String label, VoidCallback onTap, {double width = 50}) =>
+      SizedBox(
+        width: width,
+        child: TextButton(
+          style: TextButton.styleFrom(
+            backgroundColor: Colors.white.withOpacity(0.2),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          onPressed: onTap,
+          child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Runner Preview"),
+        title: const Text("HTML Preview"),
         backgroundColor: Colors.black,
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () { setState(() => _isLoading = true); _controller.reload(); }),
+          IconButton(
+              icon: Icon(Icons.settings,
+                  color: _showToolPanel ? AppColors.linkBlue : Colors.white),
+              onPressed: _togglePanel,
+              tooltip: "Keyboard Toolkit"),
+        ],
       ),
-      body: WebViewWidget(controller: controller),
+      body: Stack(
+        children: [
+          WebViewWidget(controller: _controller),
+          if (_isLoading)
+            Container(color: Colors.white,
+                child: const Center(child: CircularProgressIndicator())),
+          if (_showToolPanel)
+            Positioned(
+              bottom: 0, left: 0, right: 0,
+              child: AnimatedBuilder(
+                animation: _panelSlide,
+                builder: (_, __) => Transform.translate(
+                  offset: Offset(0, (1 - _panelSlide.value) * 320),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.panelBg,
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                      boxShadow: [BoxShadow(
+                          color: Colors.black.withOpacity(0.4),
+                          blurRadius: 12, offset: const Offset(0, -2))],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            width: 40, height: 4,
+                            decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.4),
+                                borderRadius: BorderRadius.circular(2))),
+                        // Arrow keys
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            _toolBtn("←", () => _sendArrow('left')),
+                            const SizedBox(width: 16),
+                            _toolBtn("↑", () => _sendArrow('up')),
+                            const SizedBox(width: 16),
+                            _toolBtn("↓", () => _sendArrow('down')),
+                            const SizedBox(width: 16),
+                            _toolBtn("→", () => _sendArrow('right')),
+                          ]),
+                        ),
+                        // Number row
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          child: Wrap(spacing: 6, children:
+                              '1234567890'.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                        ),
+                        // QWERTY rows
+                        for (final row in ['QWERTYUIOP','ASDFGHJKL','ZXCVBNM'])
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            child: Wrap(spacing: 6, children:
+                                row.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                          ),
+                        // Space / Enter / Backspace
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            _toolBtn("Space",     () => _sendKey(' '), width: 110),
+                            const SizedBox(width: 10),
+                            _toolBtn("Enter",     () => _sendKey('Enter')),
+                            const SizedBox(width: 10),
+                            _toolBtn("⌫",        () => _sendKey('Backspace')),
+                          ]),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: ElevatedButton(
+                            onPressed: _togglePanel,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade700,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20)),
+                            ),
+                            child: const Text("Close",
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -2607,6 +3772,352 @@ class ProjectDetailScreen extends StatelessWidget {
             onLongPress: () => onFileLongPress(f),
           )),
         ],
+      ),
+    );
+  }
+}
+
+// Wraps CSS/JS content in a minimal HTML page for preview.
+// HTML/HTML3 is returned unchanged.
+String _buildPreviewHtml(String filename, String content) {
+  final ext = filename.contains('.') ? filename.split('.').last.toLowerCase() : 'html';
+  if (ext == 'css') {
+    return """<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>$content</style>
+</head>
+<body>
+<h1>CSS Preview</h1>
+<p class="example">Example paragraph</p>
+<div class="box">Example div</div>
+<button class="btn">Example button</button>
+<a href="#" class="link">Example link</a>
+<ul><li class="item">List item 1</li><li class="item">List item 2</li></ul>
+</body>
+</html>""";
+  }
+  if (ext == 'js') {
+    return """<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:monospace;padding:12px;background:#1e1e1e;color:#d4d4d4}
+#output{white-space:pre-wrap;border-top:1px solid #444;margin-top:12px;padding-top:8px}</style>
+</head>
+<body>
+<b>JavaScript Preview</b>
+<div id="output"></div>
+<script>
+(function(){
+  const _log = console.log.bind(console);
+  console.log = function(...a){ 
+    document.getElementById('output').textContent += a.join(' ') + '\n'; 
+    _log(...a); 
+  };
+  try { $content } catch(e) { 
+    document.getElementById('output').textContent += '\u274c ' + e; 
+  }
+})();
+</script>
+</body>
+</html>""";
+  }
+  return content; // html / html3 — use as-is
+}
+
+// =============================================================================
+// FLAPPY FISH — Easter Egg Game
+// Tap the app logo 5× to unlock. No assets required (emoji fallbacks built in).
+// =============================================================================
+
+class FlappyFishGame extends StatefulWidget {
+  const FlappyFishGame({Key? key}) : super(key: key);
+  @override
+  _FlappyFishGameState createState() => _FlappyFishGameState();
+}
+
+class _FlappyFishGameState extends State<FlappyFishGame>
+    with SingleTickerProviderStateMixin {
+  // ── Physics ────────────────────────────────────────────────────────────────
+  double fishY        = 0.5;
+  double velocity     = 0;
+  final double gravity = 0.25;
+  final double jump    = -4.5;
+
+  // ── Pipe ───────────────────────────────────────────────────────────────────
+  double pipeX         = 1.0;
+  final double pipeWidth = 0.18;
+  final double pipeGap   = 0.28;
+  double pipeHeightTop   = 0.3;
+
+  // ── Parallax ───────────────────────────────────────────────────────────────
+  double bgOffsetFar  = 0;
+  double bgOffsetMid  = 0;
+  double bgOffsetFore = 0;
+
+  // ── Game state ─────────────────────────────────────────────────────────────
+  int   score       = 0;
+  bool  gameOver    = false;
+  bool  gameStarted = false;
+  Timer? _gameTimer;
+
+  // Fixed-timestep loop
+  double _lastTs    = 0;
+  double _accum     = 0;
+  final double _dt  = 1 / 60;
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  @override
+  void dispose() {
+    _gameTimer?.cancel();
+    super.dispose();
+  }
+
+  // ── Game loop ──────────────────────────────────────────────────────────────
+  void _startGame() {
+    setState(() {
+      gameStarted   = true;
+      gameOver      = false;
+      fishY         = 0.5;
+      velocity      = 0;
+      pipeX         = 1.0;
+      score         = 0;
+      pipeHeightTop = Random().nextDouble() * 0.45 + 0.2;
+      bgOffsetFar   = 0;
+      bgOffsetMid   = 0;
+      bgOffsetFore  = 0;
+      _lastTs       = DateTime.now().millisecondsSinceEpoch / 1000;
+      _accum        = 0;
+    });
+    _gameTimer?.cancel();
+    _gameTimer = Timer.periodic(const Duration(milliseconds: 16), (_) => _tick());
+  }
+
+  void _tick() {
+    if (!gameStarted || gameOver) return;
+    final now = DateTime.now().millisecondsSinceEpoch / 1000;
+    final frame = (now - _lastTs).clamp(0.0, 0.033);
+    _lastTs = now;
+    _accum += frame;
+    while (_accum >= _dt) {
+      _updatePhysics();
+      _updatePipe();
+      _updateParallax();
+      _checkCollision();
+      _accum -= _dt;
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _updatePhysics() {
+    velocity += gravity * _dt;
+    fishY    += velocity  * _dt;
+    if (fishY < 0.05) { fishY = 0.05; velocity = 0; }
+    if (fishY > 0.95) { fishY = 0.95; velocity = 0; }
+  }
+
+  void _updatePipe() {
+    pipeX -= 2.5 * _dt;
+    if (pipeX < -pipeWidth) {
+      pipeX         = 1.0;
+      pipeHeightTop = Random().nextDouble() * 0.45 + 0.2;
+      score++;
+    }
+  }
+
+  void _updateParallax() {
+    bgOffsetFar  = (bgOffsetFar  - 0.001) % -1;
+    bgOffsetMid  = (bgOffsetMid  - 0.003) % -1;
+    bgOffsetFore = (bgOffsetFore - 0.005) % -1;
+  }
+
+  void _checkCollision() {
+    final inPipeX = pipeX < 0.22 && pipeX + pipeWidth > 0.08;
+    if (inPipeX) {
+      final inGap = fishY >= pipeHeightTop && fishY + 0.08 <= pipeHeightTop + pipeGap;
+      if (!inGap) _endGame();
+    }
+    if (fishY <= 0.05 || fishY >= 0.95) _endGame();
+  }
+
+  void _endGame() {
+    if (!gameOver && mounted) {
+      setState(() { gameOver = true; gameStarted = false; });
+      _gameTimer?.cancel();
+    }
+  }
+
+  void _jump() {
+    if (gameOver) return;
+    if (!gameStarted) { _startGame(); return; }
+    setState(() => velocity = jump);
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
+  @override
+  Widget build(BuildContext context) {
+    final sw       = MediaQuery.of(context).size.width;
+    final sh       = MediaQuery.of(context).size.height;
+    final fishSize = sw * 0.1;
+    final pipeW    = pipeWidth * sw;
+    final gapPx    = pipeGap   * sh;
+
+    // Fallback colour layers (no image assets needed)
+    Widget bgLayer(Color c, double offset) => Positioned.fill(
+      child: Transform.translate(
+        offset: Offset(offset * sw, 0),
+        child: Row(children: [
+          Expanded(child: Container(color: c)),
+          Expanded(child: Container(color: c)),
+        ]),
+      ),
+    );
+
+    return Scaffold(
+      backgroundColor: Colors.cyan.shade800,
+      body: GestureDetector(
+        onTap: _jump,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Background layers
+            bgLayer(Colors.cyan.shade700, bgOffsetFar),
+            bgLayer(Colors.cyan.shade600, bgOffsetMid),
+            bgLayer(Colors.cyan.shade500, bgOffsetFore),
+
+            // Top pipe
+            Positioned(
+              left: pipeX * sw, top: 0,
+              width: pipeW, height: pipeHeightTop * sh,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green.shade800, Colors.green.shade600]),
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16)),
+                ),
+              ),
+            ),
+
+            // Bottom pipe
+            Positioned(
+              left: pipeX * sw,
+              top:  (pipeHeightTop * sh) + gapPx,
+              width: pipeW,
+              height: sh - (pipeHeightTop * sh + gapPx),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green.shade800, Colors.green.shade600]),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16)),
+                ),
+              ),
+            ),
+
+            // Fish (emoji fallback — no asset needed)
+            Positioned(
+              left: sw * 0.12,
+              top:  fishY * sh - fishSize / 2,
+              child: Transform.rotate(
+                angle: (velocity / 15).clamp(-0.8, 0.8),
+                child: SizedBox(
+                  width: fishSize, height: fishSize,
+                  child: Center(
+                    child: Text("🐟",
+                      style: TextStyle(fontSize: fishSize * 0.8)),
+                  ),
+                ),
+              ),
+            ),
+
+            // Score
+            Positioned(
+              top: 40, left: 0, right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.65),
+                    borderRadius: BorderRadius.circular(40),
+                  ),
+                  child: Text("Score: $score",
+                    style: const TextStyle(color: Colors.white,
+                      fontSize: 28, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+
+            // Start screen
+            if (!gameStarted && !gameOver)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.cyanAccent, width: 2),
+                  ),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: const [
+                    Text("🐟 FLAPPY FISH 🐟",
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold,
+                        color: Colors.cyanAccent)),
+                    SizedBox(height: 16),
+                    Text("Tap to start!",
+                      style: TextStyle(fontSize: 18, color: Colors.white)),
+                    SizedBox(height: 8),
+                    Text("Tap anywhere to jump",
+                      style: TextStyle(fontSize: 13, color: Colors.white70)),
+                  ]),
+                ),
+              ),
+
+            // Game over screen
+            if (gameOver)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Text("💀 GAME OVER 💀",
+                      style: TextStyle(color: Colors.red,
+                        fontSize: 28, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    Text("Score: $score",
+                      style: const TextStyle(color: Colors.white,
+                        fontSize: 26, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: _startGame,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.androidGreen,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 36, vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30)),
+                      ),
+                      child: const Text("Play Again",
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Back to app",
+                        style: TextStyle(color: Colors.white70)),
+                    ),
+                  ]),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
