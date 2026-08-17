@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:archive/archive.dart';
@@ -592,7 +593,7 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
     try {
       final directory = await getExternalStorageDirectory();
       if (directory == null) return;
-      final readmeFile = File('\${directory.path}/App Data/README.txt');
+      final readmeFile = File('${directory.path}/App Data/README.txt');
       await readmeFile.parent.create(recursive: true);
       if (!await readmeFile.exists()) {
         const content =
@@ -1321,9 +1322,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           builder: (_) => AlertDialog(
             title: const Text("Import Warning",
                 style: TextStyle(color: AppColors.errorRed)),
-            content: Text("\${skipped.length} non-HTML file(s) were skipped:\n"
-                "\${skipped.take(5).join(', ')}"
-                "\${skipped.length > 5 ? '...' : ''}"),
+            content: Text("${skipped.length} non-HTML file(s) were skipped:\n"
+                "${skipped.take(5).join(', ')}"
+                "${skipped.length > 5 ? '...' : ''}"),
             actions: [TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text("OK"))],
@@ -1347,7 +1348,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         });
         _saveData();
         Fluttertoast.showToast(
-            msg: "Imported \${extracted.length} files as '\$projectName'",
+            msg: "Imported ${extracted.length} files as '$projectName'",
             backgroundColor: AppColors.androidGreen);
       } else if (skipped.isNotEmpty) {
         Fluttertoast.showToast(
@@ -1473,7 +1474,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text("Move \${_isMovingFile ? 'File' : 'Folder'}: \$_movingItemName"),
+        title: Text("Move ${_isMovingFile ? 'File' : 'Folder'}: $_movingItemName"),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView(
@@ -1916,8 +1917,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                       ],
                     ),
                   ),
-                  const Padding(
-                    padding: EdgeInsets.all(14),
+                  Padding(
+                    padding: const EdgeInsets.all(14),
                     child: Text(
                       "HTML Runner needs these permissions to work. "
                       "You'll only see this screen once.",
@@ -3563,7 +3564,7 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
     final keys  = {'up':'ArrowUp','down':'ArrowDown','left':'ArrowLeft','right':'ArrowRight'};
     _controller.runJavaScript(
         "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',"
-        "{key:'\${keys[dir]}',code:'\${keys[dir]}',keyCode:\${codes[dir]},bubbles:true}));");
+        "{key:'${keys[dir]}',code:'${keys[dir]}',keyCode:${codes[dir]},bubbles:true}));");
   }
 
 
