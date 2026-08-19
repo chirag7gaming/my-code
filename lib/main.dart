@@ -845,6 +845,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   FishGangUser? _currentUser;
   bool _isLocalMode = false;
   bool _isSyncing = false;
+  // recent files (max 5, stored in SharedPreferences as 'recent_files' JSON)
+  List<Map<String,String>> _recentFiles = [];
+
   // move-file system
   ProjectModel? _activeProject; // project being moved within
   dynamic      _itemToMove;
@@ -1271,7 +1274,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     }
   }
 
-  // --- IMPORT PROJECT ZIP (folder-aware) ---
+  // --- IMPORT PROJECT ZIP (all file types) ---
 
   Future<void> _importProjectZip() async {
     try {
@@ -1279,87 +1282,91 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           type: FileType.custom, allowedExtensions: ['zip']);
       if (result == null || result.files.single.path == null) return;
 
-      final zipFile = File(result.files.single.path!);
-      final archive = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
+      final zipFile    = File(result.files.single.path!);
+      final archive    = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
+      final projectName = result.files.single.name.replaceAll('.zip', '');
+      final projectId   = DateTime.now().millisecondsSinceEpoch.toString();
+
+      // Destination for binary assets so they can be previewed / opened
+      final baseDir = await StorageHelper.getFilesDirectory();
+      final projDir = Directory('${baseDir.path}/$projectId');
+      await projDir.create(recursive: true);
 
       final List<FileModel> extracted = [];
-      final List<String>    skipped   = [];
       final Set<String>     folders   = {};
+      const editableExts = {'html','htm','html3','css','js','txt','json','xml','svg','md'};
 
       for (final entry in archive) {
         if (!entry.isFile) continue;
-        final fullPath  = entry.name;
-        final fileName  = fullPath.split('/').last;
-        final folderPath = fullPath.contains('/')
-            ? fullPath.substring(0, fullPath.lastIndexOf('/'))
-            : "";
-
-        if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
-          final content = utf8.decode(entry.content as List<int>);
+        final rawPath  = entry.name;
+        final fileName = rawPath.split('/').last;
+        if (fileName.startsWith('.') || rawPath.contains('__MACOSX')) continue;
+        final folderPath = rawPath.contains('/')
+            ? rawPath.substring(0, rawPath.lastIndexOf('/'))
+            : '';
+        if (folderPath.isNotEmpty) {
+          folders.add(folderPath);
+          String cur = '';
+          for (final part in folderPath.split('/')) {
+            cur = cur.isEmpty ? part : '$cur/$part';
+            folders.add(cur);
+          }
+        }
+        final bytes = entry.content as List<int>;
+        final ext   = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+        if (editableExts.contains(ext)) {
           extracted.add(FileModel(
-            id:       DateTime.now().millisecondsSinceEpoch.toString() + fullPath,
+            id:       '${projectId}_${rawPath.hashCode}',
             name:     fileName,
-            content:  content,
+            content:  utf8.decode(bytes, allowMalformed: true),
             lastEdit: DateFormat('HH:mm').format(DateTime.now()),
             path:     folderPath,
           ));
-          if (folderPath.isNotEmpty) {
-            folders.add(folderPath);
-            String cur = "";
-            for (final part in folderPath.split('/')) {
-              cur = cur.isEmpty ? part : '\$cur/\$part';
-              folders.add(cur);
-            }
-          }
         } else {
-          skipped.add(fullPath);
+          // Binary — write to disk, store external path
+          final subDir = folderPath.isNotEmpty
+              ? Directory('${projDir.path}/$folderPath')
+              : projDir;
+          await subDir.create(recursive: true);
+          final destPath = '${subDir.path}/$fileName';
+          await File(destPath).writeAsBytes(bytes);
+          extracted.add(FileModel(
+            id:           '${projectId}_${rawPath.hashCode}',
+            name:         fileName,
+            content:      '',
+            lastEdit:     DateFormat('HH:mm').format(DateTime.now()),
+            path:         folderPath,
+            externalPath: destPath,
+          ));
         }
       }
 
-      if (skipped.isNotEmpty && mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("Import Warning",
-                style: TextStyle(color: AppColors.errorRed)),
-            content: Text("${skipped.length} non-HTML file(s) were skipped:\n"
-                "${skipped.take(5).join(', ')}"
-                "${skipped.length > 5 ? '...' : ''}"),
-            actions: [TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("OK"))],
-          ),
-        );
-      }
-
-      if (extracted.isNotEmpty) {
-        final projectName =
-            result.files.single.name.replaceAll('.zip', '');
-        setState(() {
-          _projects.add(ProjectModel(
-            id:           DateTime.now().millisecondsSinceEpoch.toString(),
-            name:         projectName,
-            description:  "Imported from ZIP",
-            createdAt:    DateFormat('yyyy-MM-dd').format(DateTime.now()),
-            lastModified: DateFormat('HH:mm').format(DateTime.now()),
-            files:   extracted,
-            folders: folders.toList(),
-          ));
-        });
-        _saveData();
-        Fluttertoast.showToast(
-            msg: "Imported ${extracted.length} files as '$projectName'",
-            backgroundColor: AppColors.androidGreen);
-      } else if (skipped.isNotEmpty) {
-        Fluttertoast.showToast(
-            msg: "No HTML files found in ZIP",
+      if (extracted.isEmpty) {
+        Fluttertoast.showToast(msg: 'No files found in ZIP',
             backgroundColor: AppColors.errorRed);
+        return;
       }
+      setState(() {
+        _projects.add(ProjectModel(
+          id:           projectId,
+          name:         projectName,
+          description:  'Imported from ZIP',
+          createdAt:    DateFormat('yyyy-MM-dd').format(DateTime.now()),
+          lastModified: DateFormat('HH:mm').format(DateTime.now()),
+          files:        extracted,
+          folders:      folders.toList(),
+        ));
+      });
+      _saveData();
+      final txt = extracted.where((f) => !f.isBinary).length;
+      final bin = extracted.where((f) =>  f.isBinary).length;
+      Fluttertoast.showToast(
+          msg: 'Imported "$projectName": $txt text + $bin binary files',
+          backgroundColor: AppColors.androidGreen);
     } catch (e) {
-      Fluttertoast.showToast(msg: "Failed to import ZIP: \$e");
+      Fluttertoast.showToast(msg: 'Failed to import ZIP: $e');
     }
   }
-
   // --- FOLDER OPTIONS ---
 
   void _showFolderOptions(ProjectModel project, String folderPath) {
@@ -1567,7 +1574,21 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     }
   }
 
-    void _showFileCreationMenu() {
+    void _trackRecentFile(FileModel file, {ProjectModel? project}) {
+    final entry = {
+      'id':       file.id,
+      'name':     file.name,
+      'project':  project?.name ?? '',
+      'lastEdit': file.lastEdit,
+    };
+    _recentFiles.removeWhere((e) => e['id'] == file.id);
+    _recentFiles.insert(0, entry);
+    if (_recentFiles.length > 5) _recentFiles = _recentFiles.sublist(0, 5);
+    SharedPreferences.getInstance().then((p) =>
+        p.setString('recent_files', jsonEncode(_recentFiles)));
+  }
+
+  void _showFileCreationMenu() {
     final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
@@ -1706,6 +1727,14 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       _projects = [];
       _standaloneFiles = [];
     }
+    // Load recent files
+    try {
+      final rf = prefs.getString('recent_files');
+      if (rf != null) {
+        _recentFiles = List<Map<String,String>>.from(
+          (jsonDecode(rf) as List).map((e) => Map<String,String>.from(e)));
+      }
+    } catch (_) {}
     setState(() {});
   }
 
@@ -2271,10 +2300,11 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   void _openProject(ProjectModel project) {
     Navigator.push(context, MaterialPageRoute(
       builder: (context) => ProjectDetailScreen(
-        project: project,
-        onFileTap: (f) => _openCodeEditor(f, project: project),
-        onFileLongPress: (f) => _showFileOptions(f, project),
-        onAddFile: () => _openCodeEditor(null, project: project),
+        project:           project,
+        onFileTap:         (f) => _openCodeEditor(f, project: project),
+        onFileLongPress:   (f) => _showFileOptions(f, project),
+        onFolderLongPress: (folder) => _showFolderOptions(project, folder),
+        onAddFile:         () => _showFileCreationMenu(),
       )
     ));
   }
@@ -2282,8 +2312,13 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   /// Open a file for editing. If the file is binary (image, pdf, etc.),
   /// hand it off to the Android "Open with..." dialog instead.
   void _openCodeEditor(FileModel? file, {ProjectModel? project}) {
-    if (file != null && file.isBinary) { _openWithSystem(file); return; }
-    if (file != null && !file.isEditable) { _openWithSystem(file); return; }
+    if (file != null && !file.isEditable) {
+      Fluttertoast.showToast(
+          msg: '"${file.name}" is an asset — it can be referenced in HTML but not opened in the IDE',
+          toastLength: Toast.LENGTH_LONG);
+      return;
+    }
+    if (file != null) _trackRecentFile(file, project: project);
     Navigator.push(context, MaterialPageRoute(
       builder: (context) => IDEEditorScreen(
         file: file,
@@ -2435,6 +2470,12 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                   }
                 });
                 _saveData();
+                Fluttertoast.showToast(msg: '"${file.name}" deleted');
+                // ProjectDetailScreen is off the nav stack — pop back so the
+                // updated project list is visible
+                if (project != null && Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                }
               });
             },
           ),
@@ -2498,12 +2539,76 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     );
   }
 
+  void _showRecentFilesDialog() {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const ListTile(
+            leading: Icon(Icons.history),
+            title: Text('Recent Files',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          const Divider(height: 0),
+          if (_recentFiles.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('No recent files yet.',
+                style: TextStyle(color: Colors.grey)),
+            )
+          else
+            ..._recentFiles.map((e) => ListTile(
+              leading: const Icon(Icons.insert_drive_file, color: AppColors.linkBlue),
+              title: Text(e['name'] ?? 'Unknown'),
+              subtitle: Text(
+                e['project']!.isNotEmpty ? 'In: ${e['project']}  •  ${e['lastEdit']}' : e['lastEdit'] ?? '',
+                style: const TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.pop(context);
+                final id = e['id'];
+                FileModel? found;
+                ProjectModel? proj;
+                for (final f in _standaloneFiles) {
+                  if (f.id == id) { found = f; break; }
+                }
+                if (found == null) {
+                  for (final p in _projects) {
+                    for (final f in p.files) {
+                      if (f.id == id) { found = f; proj = p; break; }
+                    }
+                    if (found != null) break;
+                  }
+                }
+                if (found != null) {
+                  _openCodeEditor(found, project: proj);
+                } else {
+                  Fluttertoast.showToast(msg: 'File no longer exists');
+                  setState(() => _recentFiles.removeWhere((r) => r['id'] == id));
+                }
+              },
+            )).toList(),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
   void _showSettingsSheet() {
     showModalBottomSheet(
       context: context,
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          ListTile(
+            leading: const Icon(Icons.history, color: AppColors.androidGreen),
+            title: const Text("Recent Files"),
+            onTap: () {
+              Navigator.pop(context);
+              _showRecentFilesDialog();
+            },
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.menu_book, color: AppColors.linkBlue),
             title: const Text("Help / Tutorial"),
@@ -2826,14 +2931,17 @@ class FileTile extends StatelessWidget {
   });
 
   static IconData _iconFor(FileModel f) {
+    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
     if (f.isBinary) {
-      final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
       if ({'jpg','jpeg','png','gif','webp','bmp','svg'}.contains(ext)) return Icons.image;
       if ({'mp4','mov','avi','mkv','webm'}.contains(ext))              return Icons.videocam;
       if ({'mp3','wav','ogg','aac','flac'}.contains(ext))              return Icons.audiotrack;
       if (ext == 'pdf')                                                return Icons.picture_as_pdf;
+      if ({'zip','tar','gz','rar'}.contains(ext))                      return Icons.folder_zip;
       return Icons.attach_file;
     }
+    if (ext == 'css')  return Icons.palette;
+    if (ext == 'js')   return Icons.javascript;
     return Icons.html;
   }
 
@@ -3047,17 +3155,28 @@ class _LineNumberColumn extends StatefulWidget {
 }
 
 class __LineNumberColumnState extends State<_LineNumberColumn> {
-  int _lineCount = 1;
+  int    _lineCount    = 1;
+  double _scrollOffset = 0.0;
 
   @override
   void initState() {
     super.initState();
     _updateLineCount();
     widget.controller.addListener(_updateLineCount);
+    widget.scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    try {
+      final off = widget.scrollController.hasClients
+          ? widget.scrollController.offset : 0.0;
+      if (_scrollOffset != off) setState(() => _scrollOffset = off);
+    } catch (_) {}
   }
 
   void _updateLineCount() {
-    if (!mounted) return; // guard: listener can fire after dispose
+    if (!mounted) return;
     final lines = '\n'.allMatches(widget.controller.text).length + 1;
     if (_lineCount != lines) setState(() => _lineCount = lines);
   }
@@ -3065,39 +3184,28 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
   @override
   void dispose() {
     widget.controller.removeListener(_updateLineCount);
+    try { widget.scrollController.removeListener(_onScroll); } catch (_) {}
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // lineH must match the TextField: fontSize(14) * height(1.5) = 21.0
     const double lineH = 21.0;
     return Container(
       width: 44,
       color: AppColors.gutterGray,
       clipBehavior: Clip.hardEdge,
-      child: AnimatedBuilder(
-        animation: widget.scrollController,
-        builder: (context, _) {
-          double offset = 0.0;
-          try {
-            if (widget.scrollController.hasClients) {
-              offset = widget.scrollController.offset;
-            }
-          } catch (_) {}
-          // Translate the whole column upward by the scroll offset —
-          // no ListView gaps, no white bottom, perfectly in sync.
-          return Transform.translate(
-            offset: Offset(0, -offset),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: List.generate(_lineCount, (i) => SizedBox(
-                height: lineH,
-                child: Text(
-                  '${i + 1}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
+      child: Transform.translate(
+        offset: Offset(0, -_scrollOffset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: List.generate(_lineCount, (i) => SizedBox(
+            height: lineH,
+            child: Text(
+              '${i + 1}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 14,
                     height: 1.5,
@@ -3105,9 +3213,7 @@ class __LineNumberColumnState extends State<_LineNumberColumn> {
                   ),
                 ),
               )),
-            ),
-          );
-        },
+        ),
       ),
     );
   }
@@ -3148,32 +3254,9 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
   }
 
   Future<bool> _onWillPop() async {
-    bool shouldExit = false;
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("⚠️ Warning⚠️"),
-        content: const Text("If you exit now without saving it, Your changes will not be saved"),
-        actions: [
-          TextButton(
-            onPressed: () {
-              shouldExit = true;
-              Navigator.pop(context);
-            },
-            child: const Text("Exit anyway", style: TextStyle(color: AppColors.errorRed)),
-          ),
-          TextButton(
-            onPressed: () {
-              widget.onSave(_nameController.text, _codeController.text);
-              shouldExit = true;
-              Navigator.pop(context);
-            },
-            child: const Text("Save & Exit", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.androidGreen)),
-          ),
-        ],
-      ),
-    );
-    return shouldExit;
+    // Auto-save on exit — no disruptive dialog
+    widget.onSave(_nameController.text, _codeController.text);
+    return true;
   }
 
   Future<void> _runPreview() async {
@@ -3644,16 +3727,21 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
                 animation: _panelSlide,
                 builder: (_, __) => Transform.translate(
                   offset: Offset(0, (1 - _panelSlide.value) * 320),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.panelBg,
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                      boxShadow: [BoxShadow(
-                          color: Colors.black.withOpacity(0.4),
-                          blurRadius: 12, offset: const Offset(0, -2))],
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.48,
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.panelBg,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                        boxShadow: [BoxShadow(
+                            color: Colors.black.withOpacity(0.4),
+                            blurRadius: 12, offset: const Offset(0, -2))],
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                       children: [
                         // drag handle
                         Container(
@@ -3780,92 +3868,314 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+                      ),  // Column
+                    ),  // SingleChildScrollView
+                  ),  // Container
+                ),  // ConstrainedBox
+              ),  // Transform.translate
+            ),  // AnimatedBuilder
+          ),  // Positioned
         ],
-      ),
+      ),  // GestureDetector / Stack
     );
   }
 }
 
-class ProjectDetailScreen extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// FOLDER TREE VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+class FileTreeView extends StatefulWidget {
   final ProjectModel project;
   final Function(FileModel) onFileTap;
   final Function(FileModel) onFileLongPress;
-  final VoidCallback onAddFile;
+  final Function(String folderPath) onFolderLongPress;
 
-  const ProjectDetailScreen({
+  const FileTreeView({
+    Key? key,
     required this.project,
     required this.onFileTap,
     required this.onFileLongPress,
+    required this.onFolderLongPress,
+  }) : super(key: key);
+
+  @override
+  State<FileTreeView> createState() => _FileTreeViewState();
+}
+
+class _FileTreeViewState extends State<FileTreeView> {
+  // Tracks which folder paths are expanded
+  final Set<String> _expanded = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-expand root-level folders
+    for (final f in widget.project.folders) {
+      if (!f.contains('/')) _expanded.add(f);
+    }
+  }
+
+  // ── Icon helper ──────────────────────────────────────────────────────────
+  static IconData _fileIcon(FileModel f) {
+    if (f.isBinary) {
+      final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+      if ({'jpg','jpeg','png','gif','webp','bmp','svg'}.contains(ext)) return Icons.image;
+      if ({'mp4','mov','avi','mkv','webm'}.contains(ext))              return Icons.videocam;
+      if ({'mp3','wav','ogg','aac','flac'}.contains(ext))              return Icons.audiotrack;
+      if (ext == 'pdf')                                                return Icons.picture_as_pdf;
+      if ({'zip','tar','gz','rar'}.contains(ext))                      return Icons.folder_zip;
+      return Icons.attach_file;
+    }
+    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+    if (ext == 'css')  return Icons.palette;
+    if (ext == 'js')   return Icons.javascript;
+    if (ext == 'json') return Icons.data_object;
+    if (ext == 'svg')  return Icons.auto_awesome_mosaic;
+    return Icons.html;
+  }
+
+  Color _fileIconColor(FileModel f) {
+    if (f.isBinary) return Colors.grey.shade400;
+    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+    if (ext == 'css')  return Colors.blue.shade300;
+    if (ext == 'js')   return Colors.yellow.shade600;
+    return AppColors.folderYellow;
+  }
+
+  // ── Recursive tree builder ────────────────────────────────────────────────
+  List<Widget> _buildLevel(String parentPath, int depth) {
+    final indent = depth * 20.0;
+    final widgets = <Widget>[];
+
+    // Subfolders at this level
+    final subfolders = widget.project.getSubfolders(parentPath);
+    for (final folder in subfolders) {
+      final name       = folder.split('/').last;
+      final isExpanded = _expanded.contains(folder);
+      final childCount = widget.project.getFilesInFolder(folder).length
+                       + widget.project.getSubfolders(folder).length;
+
+      widgets.add(InkWell(
+        onTap:      () => setState(() => isExpanded ? _expanded.remove(folder) : _expanded.add(folder)),
+        onLongPress: () => widget.onFolderLongPress(folder),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(indent + 8, 10, 8, 10),
+          child: Row(children: [
+            Icon(
+              isExpanded ? Icons.folder_open : Icons.folder,
+              color: AppColors.folderYellow,
+              size: 22,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(name,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            ),
+            Text('$childCount item${childCount == 1 ? '' : 's'}',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+            const SizedBox(width: 6),
+            Icon(isExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 18, color: Colors.grey),
+          ]),
+        ),
+      ));
+
+      // Vertical connector line behind expanded content
+      if (isExpanded) {
+        widgets.add(IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: indent + 20,
+                child: Center(
+                  child: Container(
+                    width: 1.5,
+                    color: AppColors.folderYellow.withOpacity(0.35),
+                  ),
+                ),
+              ),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: _buildLevel(folder, depth + 1),
+              )),
+            ],
+          ),
+        ));
+      }
+    }
+
+    // Files at this level
+    final files = widget.project.getFilesInFolder(parentPath);
+    for (final file in files) {
+      widgets.add(InkWell(
+        onTap:       () => widget.onFileTap(file),
+        onLongPress: () => widget.onFileLongPress(file),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(indent + 8, 8, 8, 8),
+          child: Row(children: [
+            Icon(_fileIcon(file), color: _fileIconColor(file), size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                file.name,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: file.isEditable ? null : Colors.grey.shade500,
+                  fontStyle: file.isEditable ? FontStyle.normal : FontStyle.italic,
+                ),
+              ),
+            ),
+            if (!file.isEditable)
+              Tooltip(
+                message: 'Asset — cannot be opened in IDE',
+                child: Icon(Icons.lock_outline, size: 14, color: Colors.grey.shade500),
+              ),
+            if (file.lastEdit.isNotEmpty)
+              Text(file.lastEdit,
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+          ]),
+        ),
+      ));
+    }
+
+    if (widgets.isEmpty) {
+      widgets.add(Padding(
+        padding: EdgeInsets.fromLTRB(indent + 12, 6, 8, 6),
+        child: Text('Empty folder',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500,
+            fontStyle: FontStyle.italic)),
+      ));
+    }
+
+    return widgets;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.project.files.isEmpty && widget.project.folders.isEmpty) {
+      return const Center(
+        child: Text('No files yet.\nTap "+ Add New File" to get started.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey)));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: _buildLevel('', 0),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROJECT DETAIL SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ProjectDetailScreen extends StatefulWidget {
+  final ProjectModel project;
+  final Function(FileModel) onFileTap;
+  final Function(FileModel) onFileLongPress;
+  final Function(String)    onFolderLongPress;
+  final VoidCallback onAddFile;
+
+  const ProjectDetailScreen({
+    Key? key,
+    required this.project,
+    required this.onFileTap,
+    required this.onFileLongPress,
+    required this.onFolderLongPress,
     required this.onAddFile,
-  });
+  }) : super(key: key);
+
+  @override
+  State<ProjectDetailScreen> createState() => _ProjectDetailScreenState();
+}
+
+class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
+  void refresh() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: Text(project.name),
+        title: Text(widget.project.name),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.create_new_folder_outlined),
+            tooltip: 'Add file',
+            onPressed: widget.onAddFile,
+          ),
+        ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         children: [
-          Row(
-            children: [
-              Container(
-                width: 60, 
-                height: 60,
-                color: Theme.of(context).cardColor,
-                child: project.iconPath != null
-                    ? Image.file(
-                        File(project.iconPath!),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.terrain, size: 40),
-                      )
-                    : const Icon(Icons.terrain, size: 40),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
+          // Project header card
+          Card(
+            margin: const EdgeInsets.only(bottom: 16),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 56, height: 56,
+                    child: widget.project.iconPath != null
+                        ? Image.file(File(widget.project.iconPath!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const Icon(Icons.terrain, size: 36))
+                        : const Icon(Icons.terrain, size: 36),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(project.description, style: const TextStyle(fontStyle: FontStyle.italic)),
-                    const SizedBox(height: 5),
-                    Text("Created: ${project.createdAt}", style: const TextStyle(fontSize: 10)),
+                    if (widget.project.description.isNotEmpty)
+                      Text(widget.project.description,
+                        style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    Text('Created ${widget.project.createdAt}  •  '
+                         '${widget.project.files.length} file(s)',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
                   ],
-                ),
-              )
-            ],
-          ),
-          const Divider(height: 30),
-          
-          InkWell(
-            onTap: onAddFile,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text(
-                "+ Add New File to Project", 
-                style: TextStyle(
-                  color: AppColors.linkBlue, 
-                  fontWeight: FontWeight.bold, 
-                  fontSize: 18
-                ),
-              ),
+                )),
+              ]),
             ),
           ),
-          
-          if (project.files.isEmpty)
-            const Text("No files in this project yet.", style: TextStyle(color: Colors.grey)),
 
-          ...project.files.map((f) => FileTile(
-            file: f,
-            onTap: () => onFileTap(f),
-            onLongPress: () => onFileLongPress(f),
-          )),
+          // Add file button
+          InkWell(
+            onTap: widget.onAddFile,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.linkBlue.withOpacity(0.5),
+                  style: BorderStyle.solid),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(children: [
+                Icon(Icons.add, color: AppColors.linkBlue, size: 20),
+                SizedBox(width: 8),
+                Text('Add New File to Project',
+                  style: TextStyle(color: AppColors.linkBlue,
+                    fontWeight: FontWeight.w600)),
+              ]),
+            ),
+          ),
+
+          // File tree
+          FileTreeView(
+            project: widget.project,
+            onFileTap:         widget.onFileTap,
+            onFileLongPress:   widget.onFileLongPress,
+            onFolderLongPress: widget.onFolderLongPress,
+          ),
         ],
       ),
     );
@@ -4081,6 +4391,7 @@ class _FlappyFishGameState extends State<FlappyFishGame>
     return Scaffold(
       backgroundColor: Colors.cyan.shade800,
       body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: _jump,
         child: Stack(
           fit: StackFit.expand,
