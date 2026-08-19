@@ -1183,7 +1183,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             children: [
               _buildInfoRow("📱", "App Name",    "HTML Runner"),
               _buildInfoRow("🔢", "Version",     "1.6.7+1"),
-              _buildInfoRow("📝", "Lines",       "~2700 lines"),
+              _buildInfoRow("📝", "Lines",       "4538 lines"),
               _buildInfoRow("🎨", "UI Style",    "Android 4.2 Jellybean"),
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
               _buildInfoRow("🔧", "SDK",         "Android SDK 36"),
