@@ -204,7 +204,7 @@ class SecurityCodeService {
 
   static Future<void> _init() async {
     if (_inited) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('notification_icon.png');
     await _plugin.initialize(const InitializationSettings(android: android));
     _inited = true;
   }
@@ -1300,18 +1300,19 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             children: [
               _buildInfoRow("📱", "App Name",    "HTML Runner"),
               _buildInfoRow("🔢", "Version",     "1.6.7+1"),
-              _buildInfoRow("📝", "Lines",       "4538 lines"),
-              _buildInfoRow("🎨", "UI Style",    "Android 4.2 Jellybean"),
+              _buildInfoRow("📝", "Lines",       "5059 lines"),
+              _buildInfoRow("🎨", "UI Style",    "Holo Inspired"),
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
               _buildInfoRow("🔧", "SDK",         "Android SDK 36"),
               _buildInfoRow("📦", "Package",     "com.chirag.html_runner"),
               _buildInfoRow("👨\u200d💻", "Dev", "Chirag Shylendra"),
               _buildInfoRow("🐙", "GitHub",      "@chirag7gaming"),
+              _buildInfoRow("🌪️", "Company",     "Fish Gang"
               _buildInfoRow("⚖️", "License",     "MIT License"),
-              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67🐾"),
+              _buildInfoRow("💡", "Inspiration", "Black India Day and also 67"),
               const SizedBox(height: 8),
               const Text(
-                "Made in 🇮🇳 with ❤️  •  Zero ads. Forever free.",
+                "Made in 🇮🇳 with ❤️  •  Zero ads. Forever free. Forever Open-source.",
                 style: TextStyle(fontStyle: FontStyle.italic, fontSize: 11),
               ),
               const SizedBox(height: 12),
