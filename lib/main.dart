@@ -14,23 +14,29 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/gestures.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_file/open_file.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /* =============================================================================
-   HTML RUNNER: DEFINITIVE EDITION (IMPROVED)
+   HTML RUNNER: DEFINITIVE EDITION (BUG-FIX PASS)
    =============================================================================
-   Changes:
-   - Added try-catch blocks for all risky operations.
-   - Optimized line number widget (no +50 buffer, efficient rebuilds).
-   - Added error handling for images (project icons, profile avatars).
-   - Inline comments for non‑trivial logic.
-   - Added long-press on title for update checking.
-   - Added version/copyright footer in settings.
-   - FIXED: Line numbers now scroll in sync with code editor.
-   - FIXED: WebView touch responsiveness (gestures, viewport, permissions).
-   - ADDED: Real update checking from Fish Gang server.
+   Fix pass notes (numbers refer to the review list):
+   1  prefs scope in _loadData            2  growable folders list
+   3  tutorial pushed from the dashboard  4  _insertTag with no selection
+   5  FileType.custom for file upload     6  '/' in names / preview paths
+   8  all '\$' escapes fixed              9  on-screen keys send the right key
+   10 debug/toast interpolation           11 no duplicate files on re-save
+   12 imported HTML is stored             13 binary -> system "Open with..."
+   14 text files -> small black editor    15 rename keeps .css/.js
+   16 add-file goes into the project      17 folder move/rename logic
+   18 JS preview wrapper                  19 System theme
+   20 zip/download keep folders+binaries  21 detail screen refreshes
+   22 wrapped-line numbers                23 keys insert text in inputs
+   27 Flappy physics                      28 Flappy hitbox
+   29 seamless parallax                   30 zip-slip protection
+   32 random code via notification        34 mounted checks
+   35 data stored in files, not prefs     36 storage set up after permissions
    =============================================================================
 */
 
@@ -67,33 +73,33 @@ void main() {
 
 class AppColors {
   // ── Holo Dark (Theme.Holo.Dark) ──────────────────────────────────────────
-  static const Color nostalgiaBlack   = Color(0xFF000000); // scaffold bg
-  static const Color holoPanelBg      = Color(0xFF1B1B1B); // card/panel bg
-  static const Color holoPanelBg2     = Color(0xFF262626); // slightly lighter panel
-  static const Color holoBlue         = Color(0xFF33B5E5); // Holo Blue Light (on dark)
-  static const Color holoBlueDark     = Color(0xFF0099CC); // pressed / Holo Blue (on light)
-  static const Color holoDivider      = Color(0xFF3D3D3D); // borders/dividers
+  static const Color nostalgiaBlack   = Color(0xFF000000);
+  static const Color holoPanelBg      = Color(0xFF1B1B1B);
+  static const Color holoPanelBg2     = Color(0xFF262626);
+  static const Color holoBlue         = Color(0xFF33B5E5);
+  static const Color holoBlueDark     = Color(0xFF0099CC);
+  static const Color holoDivider      = Color(0xFF3D3D3D);
   static const Color holoTextPrimary  = Color(0xFFFFFFFF);
   static const Color holoTextSecond   = Color(0xFFAAAAAA);
   // ── Holo Light (Theme.Holo.Light) ────────────────────────────────────────
-  static const Color holoLightBg      = Color(0xFFF2F2F2); // Holo.Light window bg
-  static const Color holoLightPanel   = Color(0xFFFFFFFF); // card/panel
-  static const Color holoLightPanel2  = Color(0xFFEBEBEB); // secondary panel
+  static const Color holoLightBg      = Color(0xFFF2F2F2);
+  static const Color holoLightPanel   = Color(0xFFFFFFFF);
+  static const Color holoLightPanel2  = Color(0xFFEBEBEB);
   static const Color holoLightDivider = Color(0xFFC8C8C8);
   static const Color holoLightTextPri = Color(0xFF1A1A1A);
   static const Color holoLightTextSec = Color(0xFF666666);
   // ── Shared ───────────────────────────────────────────────────────────────
-  static const Color fishGangTeal     = Color(0xFF5FD4C7); // Fish Gang accent
-  static const Color androidGreen     = Color(0xFF99CC00); // Holo green
+  static const Color fishGangTeal     = Color(0xFF5FD4C7);
+  static const Color androidGreen     = Color(0xFF99CC00);
   static const Color errorRed         = Color(0xFFFF4444);
   static const Color folderYellow     = Color(0xFFFFBB33);
   static const Color linkBlue         = Color(0xFF33B5E5);
   static const Color gutterGray       = Color(0xFF37474F);
   static const Color editorBackground = Color(0xFF1E1E1E);
   // ── Tutorial & WebRunner panel ────────────────────────────────────────────
-  static const Color panelBg      = Color(0xE6000000); // webrunner tool panel
-  static const Color tutorialBg   = Color(0xFF1a1a2e); // tutorial screen bg
-  static const Color tutorialCard = Color(0xFF16213e); // tutorial card bg
+  static const Color panelBg      = Color(0xE6000000);
+  static const Color tutorialBg   = Color(0xFF1a1a2e);
+  static const Color tutorialCard = Color(0xFF16213e);
 }
 
 class AppTextStyles {
@@ -103,7 +109,7 @@ class AppTextStyles {
     fontSize: 20,
     letterSpacing: 0.5,
   );
-  
+
   static const TextStyle codeFont = TextStyle(
     fontFamily: 'monospace',
     fontSize: 14,
@@ -118,13 +124,8 @@ class AppTextStyles {
 }
 
 // -----------------------------------------------------------------------------
-// SECTION 2: DATA MODELS
+// SECTION 2: HELPERS (storage, paths, security code)
 // -----------------------------------------------------------------------------
-
-
-// =============================================================================
-// STORAGE HELPER
-// =============================================================================
 
 class StorageHelper {
   static Future<Directory> getBaseDirectory() async {
@@ -154,6 +155,134 @@ class StorageHelper {
 
   static Future<String> getFilesPath() async => (await getFilesDirectory()).path;
   static Future<String> getZipsPath()  async => (await getZipsDirectory()).path;
+}
+
+/// FIX 35: projects/files live in JSON files in the app's documents dir
+/// (atomic write: temp file + rename) instead of one giant SharedPreferences string.
+class DataStore {
+  static Future<File> _file(String name) async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/$name');
+  }
+
+  static Future<String?> read(String name) async {
+    final f = await _file(name);
+    if (await f.exists()) return f.readAsString();
+    return null;
+  }
+
+  static Future<void> write(String name, String data) async {
+    final f   = await _file(name);
+    final tmp = File('${f.path}.tmp');
+    await tmp.writeAsString(data, flush: true);
+    await tmp.rename(f.path);
+  }
+}
+
+/// FIX 30: returns a cleaned relative path, or null if it tries to escape
+/// the destination (".." segments).
+String? _safeRelPath(String raw) {
+  final parts = raw
+      .replaceAll('\\', '/')
+      .split('/')
+      .where((p) => p.isNotEmpty && p != '.')
+      .toList();
+  if (parts.isEmpty || parts.any((p) => p == '..')) return null;
+  return parts.join('/');
+}
+
+String _extOf(String name) =>
+    name.contains('.') ? name.split('.').last.toLowerCase() : '';
+
+/// FIX 32: random one-time security code. Stored in the app's private dir for
+/// one hour and delivered as a real notification.
+class SecurityCodeService {
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+  static bool _inited = false;
+  static const int _notifId = 5528;
+
+  static Future<void> _init() async {
+    if (_inited) return;
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await _plugin.initialize(const InitializationSettings(android: android));
+    _inited = true;
+  }
+
+  static Future<File> _file() async {
+    final dir = await getApplicationSupportDirectory(); // app-private
+    return File('${dir.path}/security_code.json');
+  }
+
+  static String _generate() =>
+      (100000 + Random.secure().nextInt(900000)).toString();
+
+  /// Creates a new code, saves it for 1 hour and posts the notification.
+  /// Returns false if notifications are not allowed (code is discarded).
+  static Future<bool> issue() async {
+    final code = _generate();
+    final f = await _file();
+    await f.writeAsString(
+      jsonEncode({
+        'code': code,
+        'expires': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch,
+      }),
+      flush: true,
+    );
+
+    final status = await Permission.notification.request();
+    if (!status.isGranted) {
+      await clear();
+      return false;
+    }
+    await _init();
+    final shown = '${code.substring(0, 3)}-${code.substring(3)}';
+    await _plugin.show(
+      _notifId,
+      'HTML Runner security code',
+      'Your verification code is $shown. It expires in 1 hour.',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'security_code_channel',
+          'Security codes',
+          channelDescription: 'One-time codes for Sign Out / Reset',
+          importance: Importance.max,
+          priority: Priority.high,
+          timeoutAfter: 3600000,
+        ),
+      ),
+    );
+    return true;
+  }
+
+  static Future<bool> verify(String input) async {
+    try {
+      final f = await _file();
+      if (!await f.exists()) return false;
+      final data = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      final expires = data['expires'] as int;
+      if (DateTime.now().millisecondsSinceEpoch > expires) {
+        await clear();
+        return false;
+      }
+      final digits = input.replaceAll(RegExp(r'\D'), '');
+      if (digits == data['code']) {
+        await clear();
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> clear() async {
+    try {
+      final f = await _file();
+      if (await f.exists()) await f.delete();
+      if (_inited) await _plugin.cancel(_notifId);
+    } catch (_) {}
+  }
 }
 
 // =============================================================================
@@ -305,6 +434,12 @@ class _TutorialScreenState extends State<TutorialScreen> {
   ];
 
   @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.tutorialBg,
@@ -378,6 +513,10 @@ class _TutorialScreenState extends State<TutorialScreen> {
   }
 }
 
+// -----------------------------------------------------------------------------
+// DATA MODELS
+// -----------------------------------------------------------------------------
+
 class ProjectModel {
   String id;
   String name;
@@ -388,6 +527,7 @@ class ProjectModel {
   List<FileModel> files;
   List<String>    folders; // virtual folder paths (e.g. "pages", "pages/css")
 
+  // FIX 2: the default list is growable (a `const []` default threw on add()).
   ProjectModel({
     required this.id,
     required this.name,
@@ -396,8 +536,8 @@ class ProjectModel {
     required this.createdAt,
     required this.lastModified,
     required this.files,
-    this.folders = const [],
-  });
+    List<String>? folders,
+  }) : folders = folders ?? <String>[];
 
   Map<String, dynamic> toJson() => {
     'id':       id,
@@ -421,16 +561,29 @@ class ProjectModel {
     folders: List<String>.from(json['folders'] ?? []),
   );
 
+  static String _now() => DateFormat('HH:mm').format(DateTime.now());
+
   // ── Folder helpers ──────────────────────────────────────────────────────
 
   List<FileModel> getFilesInFolder(String folderPath) =>
       files.where((f) => f.path == folderPath).toList();
 
+  // FIX 8: real interpolation ('$parentPath/'), not the literal text.
   List<String> getSubfolders(String parentPath) => folders.where((folder) {
     if (parentPath.isEmpty) return !folder.contains('/');
-    return folder.startsWith('\$parentPath/') &&
-        folder.substring(parentPath.length + 1).contains('/') == false;
+    return folder.startsWith('$parentPath/') &&
+        !folder.substring(parentPath.length + 1).contains('/');
   }).toList();
+
+  /// Makes sure [path] and all of its ancestors exist in [folders].
+  void ensureFolder(String path) {
+    if (path.isEmpty) return;
+    String cur = "";
+    for (final part in path.split('/')) {
+      cur = cur.isEmpty ? part : '$cur/$part';
+      if (!folders.contains(cur)) folders.add(cur);
+    }
+  }
 
   /// Create a file at "pages/about.html" — auto-creates parent folders.
   void addFileWithPath(String fileNameWithPath, String content) {
@@ -439,18 +592,13 @@ class ProjectModel {
     if (fileNameWithPath.contains('/')) {
       path     = fileNameWithPath.substring(0, fileNameWithPath.lastIndexOf('/'));
       fileName = fileNameWithPath.substring(fileNameWithPath.lastIndexOf('/') + 1);
-      // ensure every ancestor folder exists
-      String cur = "";
-      for (final part in path.split('/')) {
-        cur = cur.isEmpty ? part : '\$cur/\$part';
-        if (!folders.contains(cur)) folders.add(cur);
-      }
+      ensureFolder(path);
     }
     files.add(FileModel(
       id:       DateTime.now().millisecondsSinceEpoch.toString(),
       name:     fileName,
       content:  content,
-      lastEdit: DateFormat('HH:mm').format(DateTime.now()),
+      lastEdit: _now(),
       path:     path,
     ));
   }
@@ -458,21 +606,34 @@ class ProjectModel {
   void moveFile(FileModel file, String newPath) {
     files.remove(file);
     file.path     = newPath;
-    file.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+    file.lastEdit = _now();
     files.add(file);
-    _updateFolders();
+    ensureFolder(newPath);
   }
 
-  void moveFolder(String oldPath, String newPath) {
-    for (final f in files) {
-      if (f.path == oldPath) {
-        f.path = newPath;
-      } else if (f.path.startsWith('\$oldPath/')) {
-        f.path = f.path.replaceFirst(oldPath, newPath);
-      }
-      f.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+  /// FIX 17: rewrites a folder path everywhere (files + folder list),
+  /// keeping empty folders.
+  void relocateFolder(String oldPath, String newPath) {
+    String remap(String p) {
+      if (p == oldPath) return newPath;
+      if (p.startsWith('$oldPath/')) return newPath + p.substring(oldPath.length);
+      return p;
     }
-    _updateFolders();
+    for (final f in files) {
+      final np = remap(f.path);
+      if (np != f.path) {
+        f.path = np;
+        f.lastEdit = _now();
+      }
+    }
+    folders = folders.map(remap).toSet().toList();
+    ensureFolder(newPath);
+  }
+
+  /// Moves a folder INTO [newParent] — keeps the folder's own name.
+  void moveFolder(String oldPath, String newParent) {
+    final name = oldPath.split('/').last;
+    relocateFolder(oldPath, newParent.isEmpty ? name : '$newParent/$name');
   }
 
   void renameFile(FileModel file, String newNameWithPath) {
@@ -481,31 +642,11 @@ class ProjectModel {
     if (newNameWithPath.contains('/')) {
       newPath = newNameWithPath.substring(0, newNameWithPath.lastIndexOf('/'));
       newName = newNameWithPath.substring(newNameWithPath.lastIndexOf('/') + 1);
-      String cur = "";
-      for (final part in newPath.split('/')) {
-        cur = cur.isEmpty ? part : '\$cur/\$part';
-        if (!folders.contains(cur)) folders.add(cur);
-      }
+      ensureFolder(newPath);
     }
     file.name     = newName;
     file.path     = newPath;
-    file.lastEdit = DateFormat('HH:mm').format(DateTime.now());
-    _updateFolders();
-  }
-
-  void _updateFolders() {
-    final Set<String> rebuilt = {};
-    for (final f in files) {
-      if (f.path.isNotEmpty) {
-        rebuilt.add(f.path);
-        String cur = "";
-        for (final part in f.path.split('/')) {
-          cur = cur.isEmpty ? part : '\$cur/\$part';
-          rebuilt.add(cur);
-        }
-      }
-    }
-    folders = rebuilt.toList();
+    file.lastEdit = _now();
   }
 }
 
@@ -526,16 +667,20 @@ class FileModel {
     this.externalPath,
   });
 
-  // Extensions editable in the IDE
-  static const _editableExts = {'html', 'htm', 'html3', 'css', 'js'};
+  /// Opened in the full code editor (and runnable).
+  static const ideExts  = {'html', 'htm', 'html3', 'css', 'js'};
+  /// Plain-text files opened in the small black edit box.
+  static const textExts = {'txt', 'json', 'xml', 'svg', 'md'};
 
-  bool get isEditable {
-    final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
-    return _editableExts.contains(ext);
-  }
+  String get ext => _extOf(name);
 
   /// Binary files (images, pdfs, etc.) — open via Android "Open with..."
   bool get isBinary => externalPath != null;
+
+  bool get isIdeFile => !isBinary && ideExts.contains(ext);
+
+  /// Anything that can be edited inside the app (IDE or the small text box).
+  bool get isEditable => !isBinary;
 
   String get fullPath => path.isEmpty ? name : '$path/$name';
 
@@ -557,6 +702,8 @@ class FileModel {
     externalPath: json['externalPath'],
   );
 }
+
+// -----------------------------------------------------------------------------
 // SECTION 3: CORE APP WIDGET
 // -----------------------------------------------------------------------------
 
@@ -568,25 +715,15 @@ class HTMLRunnerApp extends StatefulWidget {
 }
 
 class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
-  ThemeMode _themeMode = ThemeMode.dark; // default to Holo Dark; user can switch to Light in settings
+  ThemeMode _themeMode = ThemeMode.dark; // default to Holo Dark
 
   @override
   void initState() {
     super.initState();
     _loadThemePreference();
-    _setupStorage();
     _createReadmeFile();
-    _checkFirstLaunch();
-  }
-
-  Future<void> _setupStorage() async {
-    try {
-      await StorageHelper.getBaseDirectory();
-      await StorageHelper.getFilesDirectory();
-      await StorageHelper.getZipsDirectory();
-    } catch (e) {
-      debugPrint('Storage setup error: \$e');
-    }
+    // FIX 3 / 36: tutorial + storage setup now live in MainDashboard
+    // (this widget sits ABOVE MaterialApp, so it has no Navigator).
   }
 
   Future<void> _createReadmeFile() async {
@@ -607,31 +744,16 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
         await readmeFile.writeAsString(content);
       }
     } catch (e) {
-      debugPrint('README write error: \$e');
-    }
-  }
-
-  Future<void> _checkFirstLaunch() async {
-    final prefs = await SharedPreferences.getInstance();
-    final seen  = prefs.getBool('has_seen_tutorial') ?? false;
-    if (!seen && mounted) {
-      await prefs.setBool('has_seen_tutorial', true);
-      // Wait for the widget tree to settle before pushing
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const TutorialScreen()));
-        }
-      });
+      debugPrint('README write error: $e');
     }
   }
 
   Future<void> _loadThemePreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      setState(() {
-        _themeMode = ThemeMode.values[prefs.getInt('theme_pref') ?? 2];
-      });
+      final idx = (prefs.getInt('theme_pref') ?? 2).clamp(0, ThemeMode.values.length - 1);
+      if (!mounted) return;
+      setState(() => _themeMode = ThemeMode.values[idx]);
     } catch (e) {
       debugPrint('Error loading theme: $e');
     }
@@ -644,6 +766,7 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
     } catch (e) {
       debugPrint('Error saving theme: $e');
     }
+    if (!mounted) return;
     setState(() => _themeMode = mode);
   }
 
@@ -714,8 +837,7 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
       useMaterial3: false,
     );
 
-    // ── Theme.Holo.Light ──────────────────────────────────────────────────
-    // AppBar stays dark even in Holo.Light (matches Theme.Holo.Light.DarkActionBar)
+    // ── Theme.Holo.Light (dark action bar) ────────────────────────────────
     final holoLight = ThemeData(
       brightness: Brightness.light,
       scaffoldBackgroundColor: AppColors.holoLightBg,
@@ -735,7 +857,6 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
         onBackground: AppColors.holoLightTextPri,
         onError: Colors.white,
       ),
-      // ActionBar is dark even on Holo.Light — same as Theme.Holo.Light.DarkActionBar
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.nostalgiaBlack,
         elevation: 0,
@@ -786,16 +907,14 @@ class _HTMLRunnerAppState extends State<HTMLRunnerApp> {
       title: 'HTML Runner',
       theme: holoLight,
       darkTheme: holoDark,
-      themeMode: _themeMode == ThemeMode.light ? ThemeMode.light : ThemeMode.dark,
+      themeMode: _themeMode, // FIX 19: "System" now really follows the system
       home: MainDashboard(onThemeChange: _updateTheme),
     );
   }
 }
 
 // -----------------------------------------------------------------------------
-// FISH GANG AUTH: User model & sign-in helper
-// Uses Firebase Identity Toolkit REST API — no SDK, no google-services.json.
-// Same Firebase project as the Fish Gang website (fish-gang-website).
+// FISH GANG AUTH: User model
 // -----------------------------------------------------------------------------
 
 class FishGangUser {
@@ -829,9 +948,6 @@ class MainDashboard extends StatefulWidget {
 }
 
 class _MainDashboardState extends State<MainDashboard> with TickerProviderStateMixin {
-  // Services
-  final ImagePicker _imagePicker = ImagePicker();
-
   // Fish Gang Auth controllers
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -845,19 +961,23 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   FishGangUser? _currentUser;
   bool _isLocalMode = false;
   bool _isSyncing = false;
-  // recent files (max 5, stored in SharedPreferences as 'recent_files' JSON)
   List<Map<String,String>> _recentFiles = [];
 
   // move-file system
-  ProjectModel? _activeProject; // project being moved within
+  ProjectModel? _activeProject;
   dynamic      _itemToMove;
   bool         _isMovingFile  = false;
   String       _movingItemName = '';
   String       _movingItemPath = '';
-  
+
   // Data Storage
   List<ProjectModel> _projects = [];
   List<FileModel> _standaloneFiles = [];
+
+  // FIX 21: bumped on every save so open screens (project detail) rebuild.
+  final ValueNotifier<int> _rev = ValueNotifier<int>(0);
+  // FIX 35: serialises writes so two saves never race on the same temp file.
+  Future<void> _saveChain = Future.value();
 
   // Animation & Timers
   late AnimationController _refreshController;
@@ -865,39 +985,18 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   Timer? _syncTimer;
 
   // Warning States for Auth Screen
-  bool _showGoogleWarning = false;
   bool _showLocalWarning = false;
-  
-  // --- New Security State Variables ---
-  String _currentCaptchaTheme = "";
-  List<int> _selectedCaptchaIndices = [];
-  List<IconData> _captchaGridItems = [];
-  List<IconData> _correctThemeIcons = [];
-   
+
   // --- Easter Egg State ---
   int _logoTapCount = 0;
   Timer? _tapResetTimer;
   bool _isLogoSpinning = false;
   Color _logoColor = Colors.white;
-  
+
   // --- Version order for update checking ---
   final List<String> _versionOrder = [
-    "1.6.7",
-    "2.0",
-    "2.1",
-    "2.4",
-    "2.8",
-    "3.0",
-    "4.0 Beta",
-    "4.5",
-    "4.7",
-    "5.0",
-    "6.0",
-    "6.7",
-    "7.0",
-    "8.0",
-    "9.0",
-    "10.0"
+    "1.6.7", "2.0", "2.1", "2.4", "2.8", "3.0", "4.0 Beta", "4.5",
+    "4.7", "5.0", "6.0", "6.7", "7.0", "8.0", "9.0", "10.0"
   ];
 
   bool _isNewerVersion(String current, String latest) {
@@ -906,21 +1005,18 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     if (currentIndex == -1 || latestIndex == -1) return false;
     return latestIndex > currentIndex;
   }
-  
+
   @override
   void initState() {
     super.initState();
-    _refreshController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    );
-    _logoSpinController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 7),
-    );
+    _refreshController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    _logoSpinController = AnimationController(vsync: this, duration: const Duration(seconds: 7));
 
     _initializeAuth();
     _loadData();
+
+    // FIX 3: now under MaterialApp, so Navigator.push works.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkFirstLaunch());
 
     _syncTimer = Timer.periodic(const Duration(minutes: 10), (timer) {
       _triggerSync();
@@ -935,10 +1031,37 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     _tapResetTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
+    _rev.dispose();
     super.dispose();
   }
 
   // --- INITIALIZATION ---
+
+  Future<void> _checkFirstLaunch() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final seen  = prefs.getBool('has_seen_tutorial') ?? false;
+      if (!seen && mounted) {
+        await prefs.setBool('has_seen_tutorial', true);
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const TutorialScreen()));
+      }
+    } catch (e) {
+      debugPrint('First launch check failed: $e');
+    }
+  }
+
+  /// FIX 36: called on start (if permissions already granted) AND again right
+  /// after the permissions are granted.
+  Future<void> _setupStorage() async {
+    try {
+      await StorageHelper.getBaseDirectory();
+      await StorageHelper.getFilesDirectory();
+      await StorageHelper.getZipsDirectory();
+    } catch (e) {
+      debugPrint('Storage setup error: $e');
+    }
+  }
 
   void _initializeAuth() async {
     try {
@@ -946,6 +1069,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       final permsDone = prefs.getBool('perms_done') ?? false;
       final uid   = prefs.getString('fg_uid');
       final email = prefs.getString('fg_email');
+      if (!mounted) return;
       setState(() {
         _permsDone = permsDone;
         if (uid != null && email != null) {
@@ -957,6 +1081,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           _isLocalMode = false;
         }
       });
+      if (permsDone) _setupStorage();
     } catch (e) {
       debugPrint('Auth restore failed: $e');
     }
@@ -993,6 +1118,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         await prefs.setString('fg_email', user.email);
         await prefs.setString('fg_token', data['idToken'] as String);
         if (user.displayName != null) await prefs.setString('fg_name', user.displayName!);
+        if (!mounted) return;
         setState(() {
           _currentUser = user;
           _isLocalMode = false;
@@ -1001,7 +1127,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         _passwordController.clear();
       } else {
         final msg = (data['error']?['message'] as String?) ?? 'Login failed';
-        // Make Firebase error messages friendlier
         final friendly = msg.contains('EMAIL_NOT_FOUND') || msg.contains('INVALID_LOGIN_CREDENTIALS')
             ? 'Invalid email or password.'
             : msg.contains('INVALID_EMAIL')
@@ -1014,7 +1139,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     } catch (e) {
       Fluttertoast.showToast(msg: "Sign-in error: $e");
     } finally {
-      setState(() => _isSigningIn = false);
+      if (mounted) setState(() => _isSigningIn = false); // FIX 34
     }
   }
 
@@ -1025,16 +1150,17 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
     try {
       final response = await http.get(Uri.parse(pageUrl));
+      if (!mounted) return;
       if (response.statusCode == 200) {
         final versionRegex = RegExp(r'<span id="fg-version"[^>]*>(.*?)</span>');
         final versionMatch = versionRegex.firstMatch(response.body);
         final linkRegex = RegExp(r"'1\.6\.7': '([^']+)'");
         final linkMatch = linkRegex.firstMatch(response.body);
-        
+
         if (versionMatch != null && linkMatch != null) {
           final latestVersion = versionMatch.group(1)!.trim();
           final downloadUrl = linkMatch.group(1)!;
-          
+
           if (_isNewerVersion(currentVersion, latestVersion)) {
             _showUpdateDialog(downloadUrl, latestVersion);
           } else {
@@ -1047,7 +1173,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         _showErrorDialog("Could not reach update server.");
       }
     } catch (e) {
-      _showErrorDialog("Network error. Check your connection.");
+      if (mounted) _showErrorDialog("Network error. Check your connection.");
     }
   }
 
@@ -1079,19 +1205,18 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                   ),
                 ),
               );
-              
+
               try {
                 final appDir = await getApplicationDocumentsDirectory();
                 final file = File('${appDir.path}/HTMLRunner_${version.replaceAll(' ', '_')}.apk');
                 final request = await http.get(Uri.parse(url));
                 await file.writeAsBytes(request.bodyBytes);
-                // ignore: use_build_context_synchronously
+                if (!context.mounted) return;
                 Navigator.pop(context); // close progress
-                // ignore: use_build_context_synchronously
                 Navigator.pop(context); // close update dialog
                 await OpenFile.open(file.path);
               } catch (e) {
-                // ignore: use_build_context_synchronously
+                if (!context.mounted) return;
                 Navigator.pop(context); // close progress
                 _showErrorDialog("Download failed. Try again.");
               }
@@ -1110,10 +1235,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         title: const Text("✅ Up to Date"),
         content: const Text("You're running the latest version of HTML Runner."),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("OK"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK")),
         ],
       ),
     );
@@ -1126,29 +1248,24 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         title: const Text("⚠️ Update Check Failed"),
         content: Text(message),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("OK"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK")),
         ],
       ),
     );
   }
 
   void _onLogoTap() {
-    setState(() {
-      _logoColor = AppColors.linkBlue;
-    });
-    
+    setState(() => _logoColor = AppColors.linkBlue);
+
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) setState(() => _logoColor = Colors.white);
     });
 
     _logoTapCount++;
-    
+
     _tapResetTimer?.cancel();
     _tapResetTimer = Timer(const Duration(seconds: 2), () {
-      setState(() => _logoTapCount = 0);
+      if (mounted) setState(() => _logoTapCount = 0); // FIX 34
     });
 
     if (_logoTapCount >= 5) {
@@ -1160,10 +1277,10 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   void _triggerEasterEgg() {
     setState(() => _isLogoSpinning = true);
-    
     _logoSpinController.repeat();
-    
+
     Future.delayed(const Duration(seconds: 7), () {
+      if (!mounted) return; // FIX 34
       _logoSpinController.stop();
       setState(() => _isLogoSpinning = false);
       _showBuildInfoDialog();
@@ -1229,8 +1346,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Close",
-              style: TextStyle(color: AppColors.androidGreen)),
+            child: const Text("Close", style: TextStyle(color: AppColors.androidGreen)),
           ),
         ],
       ),
@@ -1262,10 +1378,11 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   // --- FILE OPERATIONS ---
 
+  /// FIX 13: hands the file to Android's system "Open with..." chooser.
   void _openWithSystem(FileModel file) async {
     final resolved = file.externalPath;
-    if (resolved == null || resolved.isEmpty) {
-      Fluttertoast.showToast(msg: "No file path — reimport this file to open with another app");
+    if (resolved == null || resolved.isEmpty || !await File(resolved).exists()) {
+      Fluttertoast.showToast(msg: "File not found — reimport it to open with another app");
       return;
     }
     final result = await OpenFile.open(resolved);
@@ -1295,17 +1412,19 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       final List<FileModel> extracted = [];
       final Set<String>     folders   = {};
       const editableExts = {'html','htm','html3','css','js','txt','json','xml','svg','md'};
+      int skipped = 0;
 
       for (final entry in archive) {
         if (!entry.isFile) continue;
-        final rawPath  = entry.name;
+        // FIX 30: reject "../" and absolute paths (zip-slip)
+        final rawPath = _safeRelPath(entry.name);
+        if (rawPath == null) { skipped++; continue; }
         final fileName = rawPath.split('/').last;
         if (fileName.startsWith('.') || rawPath.contains('__MACOSX')) continue;
         final folderPath = rawPath.contains('/')
             ? rawPath.substring(0, rawPath.lastIndexOf('/'))
             : '';
         if (folderPath.isNotEmpty) {
-          folders.add(folderPath);
           String cur = '';
           for (final part in folderPath.split('/')) {
             cur = cur.isEmpty ? part : '$cur/$part';
@@ -1313,7 +1432,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           }
         }
         final bytes = entry.content as List<int>;
-        final ext   = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+        final ext   = _extOf(fileName);
         if (editableExts.contains(ext)) {
           extracted.add(FileModel(
             id:       '${projectId}_${rawPath.hashCode}',
@@ -1323,7 +1442,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             path:     folderPath,
           ));
         } else {
-          // Binary — write to disk, store external path
           final subDir = folderPath.isNotEmpty
               ? Directory('${projDir.path}/$folderPath')
               : projDir;
@@ -1346,6 +1464,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             backgroundColor: AppColors.errorRed);
         return;
       }
+      if (!mounted) return;
       setState(() {
         _projects.add(ProjectModel(
           id:           projectId,
@@ -1361,12 +1480,14 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       final txt = extracted.where((f) => !f.isBinary).length;
       final bin = extracted.where((f) =>  f.isBinary).length;
       Fluttertoast.showToast(
-          msg: 'Imported "$projectName": $txt text + $bin binary files',
+          msg: 'Imported "$projectName": $txt text + $bin binary files'
+              '${skipped > 0 ? ' ($skipped unsafe entries skipped)' : ''}',
           backgroundColor: AppColors.androidGreen);
     } catch (e) {
       Fluttertoast.showToast(msg: 'Failed to import ZIP: $e');
     }
   }
+
   // --- FOLDER OPTIONS ---
 
   void _showFolderOptions(ProjectModel project, String folderPath) {
@@ -1393,9 +1514,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               _showDeleteConfirmation(() {
                 setState(() {
                   project.files.removeWhere((f) =>
-                      f.path == folderPath || f.path.startsWith('\$folderPath/'));
+                      f.path == folderPath || f.path.startsWith('$folderPath/'));
                   project.folders.removeWhere((f) =>
-                      f == folderPath || f.startsWith('\$folderPath/'));
+                      f == folderPath || f.startsWith('$folderPath/'));
                 });
                 _saveData();
                 Fluttertoast.showToast(msg: "Folder deleted");
@@ -1418,35 +1539,26 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           decoration: const InputDecoration(
               labelText: "New folder name", border: OutlineInputBorder())),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () {
               final newName = ctrl.text.trim();
-              if (newName.isEmpty) {
-                Fluttertoast.showToast(msg: "Folder name cannot be empty");
+              if (newName.isEmpty || newName.contains('/')) {
+                Fluttertoast.showToast(msg: "Enter a folder name without '/'");
                 return;
               }
               final parent  = oldPath.contains('/')
                   ? oldPath.substring(0, oldPath.lastIndexOf('/'))
                   : "";
-              final newPath = parent.isEmpty ? newName : '\$parent/\$newName';
-              for (final f in project.files) {
-                if (f.path == oldPath) f.path = newPath;
-                else if (f.path.startsWith('\$oldPath/')) {
-                  f.path = f.path.replaceFirst(oldPath, newPath);
-                }
+              final newPath = parent.isEmpty ? newName : '$parent/$newName';
+              if (newPath != oldPath && project.folders.contains(newPath)) {
+                Fluttertoast.showToast(msg: "A folder with that name already exists");
+                return;
               }
-              project.folders = project.folders.map((f) {
-                if (f == oldPath) return newPath;
-                if (f.startsWith('\$oldPath/')) return f.replaceFirst(oldPath, newPath);
-                return f;
-              }).toList();
+              setState(() => project.relocateFolder(oldPath, newPath));
               Navigator.pop(ctx);
               _saveData();
-              setState(() {});
-              Fluttertoast.showToast(msg: "Renamed to \$newName");
+              Fluttertoast.showToast(msg: "Renamed to $newName");
             },
             child: const Text("Rename"),
           ),
@@ -1476,11 +1588,26 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   }
 
   void _showMoveDestinationPicker() {
-    if (_activeProject == null) return;
-    final destinations = ["(Root)", ..._activeProject!.folders];
+    final project = _activeProject;
+    if (project == null) return;
+    final movingFolder = !_isMovingFile;
+    // Where the item currently lives (for "already in this location")
+    final currentParent = _isMovingFile
+        ? _movingItemPath
+        : (_movingItemPath.contains('/')
+            ? _movingItemPath.substring(0, _movingItemPath.lastIndexOf('/'))
+            : '');
+    // FIX 17: a folder can't go into itself or its own sub-folders (exact
+    // path comparison — "a" -> "ab" is fine).
+    final destinations = <String>[
+      "(Root)",
+      ...project.folders.where((d) =>
+          !movingFolder ||
+          (d != _movingItemPath && !d.startsWith('$_movingItemPath/'))),
+    ];
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: Text("Move ${_isMovingFile ? 'File' : 'Folder'}: $_movingItemName"),
         content: SizedBox(
           width: double.maxFinite,
@@ -1494,23 +1621,24 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                     color: AppColors.folderYellow),
                 title: Text(dest == "(Root)" ? "Root Directory" : dest),
                 onTap: () {
-                  if (_movingItemPath == targetPath) {
-                    Navigator.pop(context);
+                  if (targetPath == currentParent) {
+                    Navigator.pop(ctx);
                     Fluttertoast.showToast(msg: "Already in this location");
                     return;
                   }
                   if (_isMovingFile && _itemToMove is FileModel) {
-                    _activeProject!.moveFile(_itemToMove as FileModel, targetPath);
-                  } else if (!_isMovingFile && _itemToMove is String) {
-                    if (targetPath.startsWith(_movingItemPath) &&
-                        _movingItemPath.isNotEmpty) {
-                      Navigator.pop(context);
-                      Fluttertoast.showToast(msg: "Cannot move a folder into itself");
+                    project.moveFile(_itemToMove as FileModel, targetPath);
+                  } else if (movingFolder && _itemToMove is String) {
+                    final name = _movingItemPath.split('/').last;
+                    final newPath = targetPath.isEmpty ? name : '$targetPath/$name';
+                    if (project.folders.contains(newPath)) {
+                      Navigator.pop(ctx);
+                      Fluttertoast.showToast(msg: 'A folder named "$name" already exists there');
                       return;
                     }
-                    _activeProject!.moveFolder(_movingItemPath, targetPath);
+                    project.moveFolder(_movingItemPath, targetPath);
                   }
-                  Navigator.pop(context);
+                  Navigator.pop(ctx);
                   _saveData();
                   setState(() {});
                   Fluttertoast.showToast(msg: "Moved successfully!");
@@ -1519,9 +1647,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             }).toList(),
           ),
         ),
-        actions: [TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"))],
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel"))],
       ),
     );
   }
@@ -1537,44 +1663,37 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       await projDir.create(recursive: true);
 
       for (final f in project.files) {
-        final subDir = f.path.isNotEmpty
-            ? Directory('${projDir.path}/${f.path}')
-            : projDir;
-        await subDir.create(recursive: true);
-        final dest = '${subDir.path}/${f.name}';
-
+        final dest = File('${projDir.path}/${f.fullPath}');
+        await dest.parent.create(recursive: true); // FIX 6
         if (f.isBinary && f.externalPath != null) {
-          await File(f.externalPath!).copy(dest);
+          if (await File(f.externalPath!).exists()) {
+            await File(f.externalPath!).copy(dest.path);
+          }
         } else {
           final content = (overrideContent != null && f.id == mainFile.id)
               ? overrideContent
               : f.content;
-          await File(dest).writeAsString(content);
+          await dest.writeAsString(content);
         }
       }
 
-      // If the file being previewed isn't saved yet, write current content
       final mainInProject = project.files.any((f) => f.id == mainFile.id);
-      final mainSubDir = mainFile.path.isNotEmpty
-          ? Directory('${projDir.path}/${mainFile.path}')
-          : projDir;
-      await mainSubDir.create(recursive: true);
-      final mainPath = '${mainSubDir.path}/${mainFile.name}';
-
+      final mainDest = File('${projDir.path}/${mainFile.fullPath}');
+      await mainDest.parent.create(recursive: true);
       if (!mainInProject) {
-        await File(mainPath).writeAsString(overrideContent ?? mainFile.content);
+        await mainDest.writeAsString(overrideContent ?? mainFile.content);
       }
 
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(
-        builder: (_) => WebRunnerScreen(filePath: mainPath),
+        builder: (_) => WebRunnerScreen(filePath: mainDest.path),
       ));
     } catch (e) {
       Fluttertoast.showToast(msg: 'Preview failed: $e');
     }
   }
 
-    void _trackRecentFile(FileModel file, {ProjectModel? project}) {
+  void _trackRecentFile(FileModel file, {ProjectModel? project}) {
     final entry = {
       'id':       file.id,
       'name':     file.name,
@@ -1588,7 +1707,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         p.setString('recent_files', jsonEncode(_recentFiles)));
   }
 
-  void _showFileCreationMenu() {
+  /// FIX 16: [project] is passed through so new/imported files land in it.
+  void _showFileCreationMenu({ProjectModel? project}) {
     final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
@@ -1602,14 +1722,14 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 40, height: 4, 
+              width: 40, height: 4,
               margin: const EdgeInsets.only(bottom: 20),
               decoration: BoxDecoration(
-                color: Colors.grey[600], 
-                borderRadius: BorderRadius.circular(10)
-              )
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
-            const Text("New File Options", 
+            const Text("New File Options",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             ListTile(
@@ -1618,7 +1738,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               subtitle: const Text("Also supports .css  .js  .html3", style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(context);
-                _openCodeEditor(null);
+                _openCodeEditor(null, project: project);
               },
             ),
             ListTile(
@@ -1627,7 +1747,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               subtitle: const Text("HTML → IDE · Other files → system app", style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(context);
-                _importAnyFile();
+                _importAnyFile(project: project);
               },
             ),
             ListTile(
@@ -1646,7 +1766,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     );
   }
 
-  Future<void> _importAnyFile() async {
+  Future<void> _importAnyFile({ProjectModel? project}) async {
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.any);
       if (result == null) return;
@@ -1655,31 +1775,45 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       final path   = picked.path;
       if (path == null) { Fluttertoast.showToast(msg: "Could not get file path."); return; }
 
-      final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
-      const editable = {'html', 'htm', 'html3', 'css', 'js'};
+      final ext = _extOf(name);
+      final id  = DateTime.now().millisecondsSinceEpoch.toString();
+      final stamp = DateFormat('HH:mm').format(DateTime.now());
+      FileModel model;
 
-      if (editable.contains(ext)) {
-        // Read as text and open in the IDE editor
-        final content = await File(path).readAsString();
-        _openCodeEditor(FileModel(
-          id:       DateTime.now().millisecondsSinceEpoch.toString(),
-          name:     name,
-          content:  content,
-          lastEdit: DateFormat('HH:mm').format(DateTime.now()),
-        ));
-      } else {
-        // Binary file — add to standalone files with externalPath so it can
-        // be tapped to open with the Android system chooser, or added to projects.
-        final file = FileModel(
-          id:           DateTime.now().millisecondsSinceEpoch.toString(),
-          name:         name,
-          content:      '',
-          lastEdit:     DateFormat('HH:mm').format(DateTime.now()),
-          externalPath: path,
+      if (FileModel.ideExts.contains(ext) || FileModel.textExts.contains(ext)) {
+        // FIX 12: text files are STORED (they used to be opened and lost)
+        final bytes = await File(path).readAsBytes();
+        model = FileModel(
+          id: id, name: name, lastEdit: stamp,
+          content: utf8.decode(bytes, allowMalformed: true),
         );
-        setState(() => _standaloneFiles.add(file));
-        _saveData();
+      } else {
+        // Binary: copy into the app's own dir so a cache clean can't break it
+        final docs = await getApplicationDocumentsDirectory();
+        final dir  = Directory('${docs.path}/imports');
+        await dir.create(recursive: true);
+        final dest = '${dir.path}/${id}_$name';
+        await File(path).copy(dest);
+        model = FileModel(
+          id: id, name: name, content: '', lastEdit: stamp, externalPath: dest,
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        if (project != null) {
+          project.files.add(model);
+        } else {
+          _standaloneFiles.add(model);
+        }
+      });
+      _saveData();
+
+      if (model.isBinary) {
         Fluttertoast.showToast(msg: "Added \"$name\" — tap to open with system");
+      } else {
+        Fluttertoast.showToast(msg: "Imported \"$name\"");
+        _openCodeEditor(model, project: project);
       }
     } catch (e) {
       Fluttertoast.showToast(msg: "Import failed: $e");
@@ -1688,38 +1822,61 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   // --- DATA PERSISTENCE ---
 
-  Future<void> _saveData() async {
+  /// FIX 35: JSON files (atomic write) instead of SharedPreferences strings.
+  /// Returns true when everything was written.
+  Future<bool> _saveData() async {
+    _rev.value++; // FIX 21: refresh any open project screen
     try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      String projectsJson = jsonEncode(_projects.map((p) => p.toJson()).toList());
-      String filesJson = jsonEncode(_standaloneFiles.map((f) => f.toJson()).toList());
-      
-      await prefs.setString('projects_db', projectsJson);
-      await prefs.setString('files_db', filesJson);
-      await prefs.setBool('is_local_mode', _isLocalMode);
+      final projectsJson = jsonEncode(_projects.map((p) => p.toJson()).toList());
+      final filesJson    = jsonEncode(_standaloneFiles.map((f) => f.toJson()).toList());
+      final isLocal      = _isLocalMode;
+
+      final job = _saveChain.then((_) async {
+        await DataStore.write('projects_db.json', projectsJson);
+        await DataStore.write('files_db.json', filesJson);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_local_mode', isLocal);
+      });
+      _saveChain = job.catchError((_) {}); // a failed write must not block later ones
+      await job;
+      return true;
     } catch (e) {
       Fluttertoast.showToast(msg: "Failed to save data: $e");
       debugPrint('Save error: $e');
+      return false;
     }
   }
 
   Future<void> _loadData() async {
+    // FIX 1: prefs lives outside the try so the recent-files block can see it
+    final prefs = await SharedPreferences.getInstance();
     try {
-      final prefs = await SharedPreferences.getInstance();
-      
       _isLocalMode = prefs.getBool('is_local_mode') ?? false;
 
-      String? projectsJson = prefs.getString('projects_db');
-      if (projectsJson != null) {
-        Iterable list = jsonDecode(projectsJson);
-        _projects = list.map((model) => ProjectModel.fromJson(model)).toList();
+      String? projectsJson = await DataStore.read('projects_db.json');
+      String? filesJson    = await DataStore.read('files_db.json');
+      bool migrate = false;
+
+      // One-time migration from the old SharedPreferences storage
+      if (projectsJson == null && filesJson == null) {
+        projectsJson = prefs.getString('projects_db');
+        filesJson    = prefs.getString('files_db');
+        migrate = projectsJson != null || filesJson != null;
       }
 
-      String? filesJson = prefs.getString('files_db');
+      if (projectsJson != null) {
+        _projects = (jsonDecode(projectsJson) as List)
+            .map((m) => ProjectModel.fromJson(m as Map<String, dynamic>))
+            .toList();
+      }
       if (filesJson != null) {
-        Iterable list = jsonDecode(filesJson);
-        _standaloneFiles = list.map((model) => FileModel.fromJson(model)).toList();
+        _standaloneFiles = (jsonDecode(filesJson) as List)
+            .map((m) => FileModel.fromJson(m as Map<String, dynamic>))
+            .toList();
+      }
+      if (migrate && await _saveData()) {
+        await prefs.remove('projects_db');
+        await prefs.remove('files_db');
       }
     } catch (e) {
       Fluttertoast.showToast(msg: "Failed to load data, starting fresh.");
@@ -1727,7 +1884,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       _projects = [];
       _standaloneFiles = [];
     }
-    // Load recent files
     try {
       final rf = prefs.getString('recent_files');
       if (rf != null) {
@@ -1735,21 +1891,25 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           (jsonDecode(rf) as List).map((e) => Map<String,String>.from(e)));
       }
     } catch (_) {}
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
+  /// "Sync" now writes the in-memory data to disk. It no longer re-reads and
+  /// replaces every object (that left open editors / detail screens holding
+  /// stale copies, so their edits were lost).
   Future<void> _triggerSync() async {
-    if (_isSyncing) return;
-    
+    if (_isSyncing || !mounted) return;
+
     setState(() => _isSyncing = true);
     _refreshController.repeat();
 
-    await _loadData();
-    await Future.delayed(const Duration(seconds: 2));
+    await _saveData();
+    await Future.delayed(const Duration(seconds: 1));
 
+    if (!mounted) return; // FIX 34
     _refreshController.stop();
     setState(() => _isSyncing = false);
-    
+
     Fluttertoast.showToast(
       msg: "Data Synced",
       backgroundColor: Colors.black,
@@ -1757,41 +1917,55 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     );
   }
 
-  // --- IO OPERATIONS ---
+  // --- IO OPERATIONS (FIX 20) ---
+
+  String _safeFileName(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 
   Future<void> _exportProjectZip(ProjectModel project) async {
     try {
-      var encoder = ZipEncoder();
-      var archive = Archive();
+      final archive = Archive();
 
-      for (var file in project.files) {
-        List<int> bytes = utf8.encode(file.content);
-        archive.addFile(ArchiveFile(file.name, bytes.length, bytes));
+      for (final file in project.files) {
+        List<int> bytes;
+        if (file.isBinary && file.externalPath != null) {
+          final src = File(file.externalPath!);
+          if (!await src.exists()) continue;
+          bytes = await src.readAsBytes();
+        } else {
+          bytes = utf8.encode(file.content);
+        }
+        // fullPath keeps the folder structure inside the zip
+        archive.addFile(ArchiveFile(file.fullPath, bytes.length, bytes));
       }
 
-      var zipBytes = encoder.encode(archive);
+      var zipBytes = ZipEncoder().encode(archive);
       if (zipBytes == null) throw Exception("Zip encoding failed");
-      
-      final directory = await getExternalStorageDirectory();
-      if (directory == null) throw Exception("Cannot access external storage");
-      
-      final file = File('${directory.path}/${project.name}.zip');
-      await file.writeAsBytes(zipBytes);
 
-      Fluttertoast.showToast(msg: "Saved as ${project.name}.zip");
+      final dir  = await StorageHelper.getZipsDirectory();
+      final name = '${_safeFileName(project.name)}.zip';
+      await File('${dir.path}/$name').writeAsBytes(zipBytes);
+
+      Fluttertoast.showToast(msg: "Saved to HTML Files/ZIPs/$name");
     } catch (e) {
       Fluttertoast.showToast(msg: "Export Failed: $e");
     }
   }
 
+  Future<void> _writeFileToDownloads(Directory dir, FileModel file) async {
+    final dest = '${dir.path}/${_safeFileName(file.name)}';
+    if (file.isBinary && file.externalPath != null) {
+      final src = File(file.externalPath!);
+      if (await src.exists()) await src.copy(dest);
+    } else {
+      await File(dest).writeAsString(file.content);
+    }
+  }
+
   Future<void> _downloadFile(FileModel file) async {
     try {
-      final directory = await getExternalStorageDirectory();
-      if (directory == null) throw Exception("Cannot access external storage");
-      
-      final path = "${directory.path}/${file.name}";
-      await File(path).writeAsString(file.content);
-      Fluttertoast.showToast(msg: "Downloaded to $path");
+      final dir = await StorageHelper.getFilesDirectory();
+      await _writeFileToDownloads(dir, file);
+      Fluttertoast.showToast(msg: "Saved to HTML Files/Files/${file.name}");
     } catch (e) {
       Fluttertoast.showToast(msg: "Download failed: $e");
     }
@@ -1799,16 +1973,13 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   Future<void> _downloadAllFiles() async {
     try {
-      final directory = await getExternalStorageDirectory();
-      if (directory == null) throw Exception("Cannot access external storage");
-      
+      final dir = await StorageHelper.getFilesDirectory();
       int count = 0;
-      for (var file in _standaloneFiles) {
-        final path = "${directory.path}/${file.name}";
-        await File(path).writeAsString(file.content);
+      for (final file in _standaloneFiles) {
+        await _writeFileToDownloads(dir, file);
         count++;
       }
-      Fluttertoast.showToast(msg: "Downloaded $count files.");
+      Fluttertoast.showToast(msg: "Saved $count files to HTML Files/Files/");
     } catch (e) {
       Fluttertoast.showToast(msg: "Bulk download failed: $e");
     }
@@ -1860,7 +2031,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             onPressed: _triggerSync,
           ),
         ),
-        
+
         if (_currentUser != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -1877,7 +2048,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               ),
             ),
           ),
-          
+
         IconButton(
           icon: const Icon(Icons.settings, color: Colors.white),
           onPressed: _showSettingsSheet,
@@ -1900,12 +2071,13 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('perms_done', true);
+    await _setupStorage(); // FIX 36: retry now that permissions exist
+    if (!mounted) return;
     setState(() => _permsDone = true);
   }
 
   Widget _buildPermissionsScreen() {
     final _t     = Theme.of(context);
-    final bg     = _t.scaffoldBackgroundColor;
     final panel  = _t.cardColor;
     final panel2 = _t.colorScheme.surface;
     final div    = _t.dividerColor;
@@ -1923,7 +2095,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            // Header card
             Container(
               width: double.infinity,
               decoration: BoxDecoration(
@@ -1954,7 +2125,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                       style: TextStyle(color: txtSec, fontSize: 13),
                     ),
                   ),
-                  // Permission rows
                   for (final perm in perms) ...[
                     Container(
                       color: panel2,
@@ -2009,7 +2179,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final panelBg   = isDark ? AppColors.holoPanelBg  : AppColors.holoLightPanel;
-    final panelBg2  = isDark ? AppColors.holoPanelBg2 : AppColors.holoLightPanel2;
     final divider   = isDark ? AppColors.holoDivider   : AppColors.holoLightDivider;
     final textPri   = isDark ? AppColors.holoTextPrimary : AppColors.holoLightTextPri;
     final accent    = isDark ? AppColors.holoBlue      : AppColors.holoBlueDark;
@@ -2020,7 +2189,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Fish Gang Auth card
             Container(
               decoration: BoxDecoration(
                 color: panelBg,
@@ -2028,7 +2196,6 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               ),
               child: Column(
                 children: [
-                  // Header
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
@@ -2120,17 +2287,11 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
             const SizedBox(height: 24),
 
-            // Local storage option
             _buildAuthOption(
               title: "Use Application Storage",
               isWarningVisible: _showLocalWarning,
               warningText: "Your Projects and Files are going to be saved in the app. Warning: If you delete the app and reinstall it, your data will be lost forever",
-              onTap: () {
-                setState(() {
-                  _showLocalWarning = true;
-                  _showGoogleWarning = false;
-                });
-              },
+              onTap: () => setState(() => _showLocalWarning = true),
               onContinue: () async {
                 setState(() => _isLocalMode = true);
                 await _saveData();
@@ -2209,9 +2370,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       padding: const EdgeInsets.all(16.0),
       children: [
         _buildSectionHeader("+ Create Project", () => _showProjectWizard(null)),
-        if (_projects.isEmpty) 
+        if (_projects.isEmpty)
           _buildEmptyIndicator("No Projects found."),
-        
+
         ..._projects.map((p) => ProjectTile(
           project: p,
           onTap: () => _openProject(p),
@@ -2221,9 +2382,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         const SizedBox(height: 32),
 
         _buildSectionHeader("+ Create File", () => _showFileCreationMenu()),
-        if (_standaloneFiles.isEmpty) 
+        if (_standaloneFiles.isEmpty)
           _buildEmptyIndicator("No Files Found."),
-        
+
         ..._standaloneFiles.map((f) => FileTile(
           file: f,
           onTap: () => _openCodeEditor(f),
@@ -2301,54 +2462,186 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     Navigator.push(context, MaterialPageRoute(
       builder: (context) => ProjectDetailScreen(
         project:           project,
+        refresh:           _rev, // FIX 21
         onFileTap:         (f) => _openCodeEditor(f, project: project),
         onFileLongPress:   (f) => _showFileOptions(f, project),
         onFolderLongPress: (folder) => _showFolderOptions(project, folder),
-        onAddFile:         () => _showFileCreationMenu(),
-      )
+        onAddFile:         () => _showFileCreationMenu(project: project), // FIX 16
+      ),
     ));
   }
 
-  /// Open a file for editing. If the file is binary (image, pdf, etc.),
-  /// hand it off to the Android "Open with..." dialog instead.
-  void _openCodeEditor(FileModel? file, {ProjectModel? project}) {
-    if (file != null && !file.isEditable) {
-      Fluttertoast.showToast(
-          msg: '"${file.name}" is an asset — it can be referenced in HTML but not opened in the IDE',
-          toastLength: Toast.LENGTH_LONG);
-      return;
+  /// Applies a typed name to [f]. A name containing '/' is a path from the
+  /// project root ("pages/about.html") — folders are created automatically.
+  /// Standalone files have no folders, so only the last segment is used.
+  void _applyNameAndPath(FileModel f, String rawName, ProjectModel? project) {
+    var name = rawName.trim();
+    if (name.isEmpty) name = 'untitled.html';
+    if (name.contains('/')) {
+      final clean = _safeRelPath(name) ?? name.split('/').last;
+      final i = clean.lastIndexOf('/');
+      final dir  = i >= 0 ? clean.substring(0, i) : '';
+      final base = i >= 0 ? clean.substring(i + 1) : clean;
+      f.name = base;
+      if (project != null) {
+        f.path = dir;
+        project.ensureFolder(dir);
+      } else {
+        f.path = '';
+      }
+    } else {
+      f.name = name;
     }
-    if (file != null) _trackRecentFile(file, project: project);
+  }
+
+  /// Opens a file. IDE types -> code editor; binary -> system "Open with...";
+  /// other text files (txt/json/xml/svg/md) -> small black edit box.
+  void _openCodeEditor(FileModel? file, {ProjectModel? project}) {
+    if (file != null) {
+      if (file.isBinary) { _openWithSystem(file); return; }           // FIX 13
+      if (!file.isIdeFile) { _showTextEditDialog(file); return; }     // FIX 14
+      _trackRecentFile(file, project: project);
+    }
+
+    // FIX 11: remember the file we create so later saves UPDATE it.
+    FileModel? target = file;
+
     Navigator.push(context, MaterialPageRoute(
       builder: (context) => IDEEditorScreen(
         file: file,
         project: project,
         onSave: (name, content) {
           setState(() {
-            if (file == null) {
+            if (target == null) {
               final newFile = FileModel(
                 id: DateTime.now().millisecondsSinceEpoch.toString(),
                 name: name,
                 content: content,
                 lastEdit: DateFormat('HH:mm').format(DateTime.now()),
               );
+              _applyNameAndPath(newFile, name, project);
               if (project != null) {
                 project.files.add(newFile);
               } else {
                 _standaloneFiles.add(newFile);
               }
+              target = newFile;
               Fluttertoast.showToast(msg: "File Created");
             } else {
-              file.name = name;
-              file.content = content;
-              file.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+              _applyNameAndPath(target!, name, project);
+              target!.content = content;
+              target!.lastEdit = DateFormat('HH:mm').format(DateTime.now());
               Fluttertoast.showToast(msg: "File Saved");
             }
           });
           _saveData();
         },
-      )
+      ),
     ));
+  }
+
+  /// FIX 14: small black box with an inner black editable text area.
+  /// Cancel (red) / Save (green, grey until something changed) bottom-right.
+  void _showTextEditDialog(FileModel file) {
+    final original = file.content;
+    // (controller is intentionally not disposed: the dialog may still be
+    //  animating out when the future completes)
+    final ctrl = TextEditingController(text: original);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final changed = ctrl.text != original;
+          return Dialog(
+            backgroundColor: Colors.black,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+              side: const BorderSide(color: AppColors.holoDivider),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.6,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      file.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 120),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          border: Border.all(color: Colors.grey.shade700),
+                        ),
+                        child: SingleChildScrollView(
+                          child: TextField(
+                            controller: ctrl,
+                            maxLines: null,
+                            keyboardType: TextInputType.multiline,
+                            onChanged: (_) => setLocal(() {}),
+                            style: const TextStyle(
+                                color: Colors.white, fontFamily: 'monospace', fontSize: 13),
+                            decoration: const InputDecoration.collapsed(hintText: null),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade700,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text("Cancel"),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: changed
+                              ? () {
+                                  setState(() {
+                                    file.content = ctrl.text;
+                                    file.lastEdit = DateFormat('HH:mm').format(DateTime.now());
+                                  });
+                                  _saveData();
+                                  Navigator.pop(ctx);
+                                  Fluttertoast.showToast(msg: '"${file.name}" saved');
+                                }
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.androidGreen,
+                            foregroundColor: Colors.black,
+                            disabledBackgroundColor: Colors.grey.shade700,
+                            disabledForegroundColor: Colors.white54,
+                          ),
+                          child: const Text("Save"),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   // --- CONTEXT MENUS ---
@@ -2389,9 +2682,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             onTap: () {
               Navigator.pop(context);
               _showDeleteConfirmation(() {
-                setState(() {
-                  _projects.remove(project);
-                });
+                setState(() => _projects.remove(project));
                 _saveData();
               });
             },
@@ -2408,8 +2699,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
-            leading: const Icon(Icons.edit),
-            title: const Text("Edit Code..."),
+            leading: Icon(file.isBinary ? Icons.open_in_new : Icons.edit),
+            title: Text(file.isBinary ? "Open with..." : "Edit..."),
             onTap: () {
               Navigator.pop(context);
               _openCodeEditor(file, project: project);
@@ -2417,7 +2708,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
           ),
           ListTile(
             leading: const Icon(Icons.download),
-            title: const Text("Download as .html"),
+            title: const Text("Download to HTML Files/Files"),
             onTap: () {
               Navigator.pop(context);
               _downloadFile(file);
@@ -2441,7 +2732,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                 _showAddToProjectDialog(file);
               },
             ),
-          if (!file.isBinary)
+          if (file.isIdeFile)
             ListTile(
               leading: const Icon(Icons.play_arrow),
               title: const Text("Run"),
@@ -2469,13 +2760,8 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                     _standaloneFiles.remove(file);
                   }
                 });
-                _saveData();
+                _saveData(); // also refreshes the open project screen (FIX 21)
                 Fluttertoast.showToast(msg: '"${file.name}" deleted');
-                // ProjectDetailScreen is off the nav stack — pop back so the
-                // updated project list is visible
-                if (project != null && Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                }
               });
             },
           ),
@@ -2562,7 +2848,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               leading: const Icon(Icons.insert_drive_file, color: AppColors.linkBlue),
               title: Text(e['name'] ?? 'Unknown'),
               subtitle: Text(
-                e['project']!.isNotEmpty ? 'In: ${e['project']}  •  ${e['lastEdit']}' : e['lastEdit'] ?? '',
+                (e['project'] ?? '').isNotEmpty ? 'In: ${e['project']}  •  ${e['lastEdit']}' : e['lastEdit'] ?? '',
                 style: const TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(context);
@@ -2662,23 +2948,19 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             title: const Text("Sign Out / Reset"),
             onTap: () {
               Navigator.pop(context);
-              _triggerSecurityVerification(); 
+              _triggerSecurityVerification();
             },
           ),
         ],
       ),
     );
   }
-  
+
   // --- START OF SECURITY GATE LOGIC ---
 
   void _triggerSecurityVerification() {
     if (_currentUser != null) {
-      _showChallengeDialog(
-        title: "Fish Gang Security Verification",
-        hint: "Enter the code shown in your security alert: 552-881",
-        correctCode: "552-881",
-      );
+      _showChallengeDialog();
     } else {
       _startSecurityScan();
     }
@@ -2688,9 +2970,10 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
+      builder: (dialogCtx) {
         Future.delayed(const Duration(seconds: 2), () {
-          Navigator.pop(context);
+          if (!mounted) return; // FIX 34
+          Navigator.pop(dialogCtx);
           _showMegaCaptcha();
         });
         return const AlertDialog(
@@ -2767,7 +3050,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
                 int totalCorrectInGrid = gridItems.where((i) => correctIcons.contains(i)).length;
                 if (success && selectedIndices.length == totalCorrectInGrid) {
                   Navigator.pop(context);
-                  _handleSignOut(); 
+                  _handleSignOut();
                   Fluttertoast.showToast(msg: "Identity Confirmed");
                 } else {
                   Fluttertoast.showToast(msg: "Try again. Select ALL matching items.");
@@ -2783,30 +3066,72 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     );
   }
 
-  void _showChallengeDialog({required String title, required String hint, required String correctCode}) {
-    TextEditingController input = TextEditingController();
+  /// FIX 32: random 6-digit code, kept in the app's private dir for 1 hour and
+  /// delivered as a real notification. The code is never shown in the dialog.
+  Future<void> _showChallengeDialog() async {
+    bool sent;
+    try {
+      sent = await SecurityCodeService.issue();
+    } catch (e) {
+      Fluttertoast.showToast(msg: "Could not send the security code: $e");
+      return;
+    }
+    if (!mounted) return;
+    if (!sent) {
+      Fluttertoast.showToast(
+        msg: "Allow notifications for HTML Runner to receive your security code.",
+        toastLength: Toast.LENGTH_LONG,
+      );
+      return;
+    }
+
+    final input = TextEditingController();
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(title, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+      builder: (ctx) => AlertDialog(
+        title: const Text("Fish Gang Security Verification",
+            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(hint),
+            const Text("A 6-digit security code was sent to your notifications. "
+                "It stays valid for 1 hour."),
             const SizedBox(height: 15),
-            TextField(controller: input, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: "Verification Code")),
+            TextField(
+              controller: input,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  border: OutlineInputBorder(), labelText: "Verification Code"),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () async {
+                  final ok = await SecurityCodeService.issue();
+                  Fluttertoast.showToast(
+                      msg: ok ? "New code sent" : "Notifications are blocked");
+                },
+                child: const Text("Send a new code"),
+              ),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
-          ElevatedButton(
+          TextButton(
             onPressed: () {
-              if (input.text == correctCode) {
-                Navigator.pop(context);
-                _handleSignOut(); 
+              SecurityCodeService.clear();
+              Navigator.pop(ctx);
+            },
+            child: const Text("CANCEL"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (await SecurityCodeService.verify(input.text)) {
+                if (ctx.mounted) Navigator.pop(ctx);
+                _handleSignOut();
               } else {
-                Fluttertoast.showToast(msg: "Incorrect code.");
+                Fluttertoast.showToast(msg: "Incorrect or expired code.");
               }
             },
             child: const Text("VERIFY & WIPE"),
@@ -2824,6 +3149,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       await prefs.remove('fg_token');
       await prefs.remove('fg_name');
       await prefs.remove('is_local_mode');
+      await SecurityCodeService.clear();
     } catch (e) {
       debugPrint('Sign-out cleanup error: $e');
     }
@@ -2873,7 +3199,7 @@ class ProjectTile extends StatelessWidget {
                       )
                     : const Icon(Icons.terrain, size: 40, color: Colors.green),
               ),
-              
+
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -2931,7 +3257,7 @@ class FileTile extends StatelessWidget {
   });
 
   static IconData _iconFor(FileModel f) {
-    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+    final ext = f.ext;
     if (f.isBinary) {
       if ({'jpg','jpeg','png','gif','webp','bmp','svg'}.contains(ext)) return Icons.image;
       if ({'mp4','mov','avi','mkv','webm'}.contains(ext))              return Icons.videocam;
@@ -2942,6 +3268,9 @@ class FileTile extends StatelessWidget {
     }
     if (ext == 'css')  return Icons.palette;
     if (ext == 'js')   return Icons.javascript;
+    if (ext == 'json') return Icons.data_object;
+    if (ext == 'txt' || ext == 'md') return Icons.description;
+    if (ext == 'xml' || ext == 'svg') return Icons.code;
     return Icons.html;
   }
 
@@ -3011,10 +3340,8 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
   Future<void> _pickIcon() async {
     try {
       final XFile? image = await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (image != null) {
-        setState(() {
-          _selectedIconPath = image.path;
-        });
+      if (image != null && mounted) {
+        setState(() => _selectedIconPath = image.path);
       }
     } catch (e) {
       Fluttertoast.showToast(msg: "Failed to pick image: $e");
@@ -3054,7 +3381,7 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
                         ),
                 ),
               ),
-              
+
               Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
@@ -3083,7 +3410,7 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
                     const Divider(),
                     if (widget.availableFiles.isEmpty)
                       const Padding(padding: EdgeInsets.all(8.0), child: Text("No standalone files available to add.", style: TextStyle(color: Colors.grey))),
-                    
+
                     ...widget.availableFiles.map((f) => CheckboxListTile(
                       title: Text(f.name),
                       value: _selectedFiles.contains(f),
@@ -3138,85 +3465,152 @@ class _ProjectWizardDialogState extends State<ProjectWizardDialog> {
 }
 
 // -----------------------------------------------------------------------------
-// SECTION 7: IDE EDITOR SCREEN (FIXED: LINE NUMBERS SYNC)
+// SECTION 7: IDE EDITOR SCREEN
 // -----------------------------------------------------------------------------
 
+/// FIX 22: line numbers that follow SOFT-WRAPPED lines. Each logical line is
+/// measured with a TextPainter at the editor's real text width, so a wrapped
+/// line reserves as many rows as it occupies. Drawn with a CustomPainter
+/// (only visible numbers are painted — no widget per line).
 class _LineNumberColumn extends StatefulWidget {
   final TextEditingController controller;
   final ScrollController scrollController;
+  final TextStyle textStyle;   // fully resolved style used by the editor
+  final TextScaler textScaler;
+  final double textWidth;      // width available to the text inside the field
 
   const _LineNumberColumn({
     required this.controller,
     required this.scrollController,
+    required this.textStyle,
+    required this.textScaler,
+    required this.textWidth,
   });
 
   @override
-  __LineNumberColumnState createState() => __LineNumberColumnState();
+  State<_LineNumberColumn> createState() => _LineNumberColumnState();
 }
 
-class __LineNumberColumnState extends State<_LineNumberColumn> {
-  int    _lineCount    = 1;
-  double _scrollOffset = 0.0;
+class _LineNumberColumnState extends State<_LineNumberColumn> {
+  List<int> _visual = const [1];          // visual rows per logical line
+  final Map<String, int> _cache = {};
+  String _lastText = '';
+
+  double get _lineH =>
+      widget.textScaler.scale(widget.textStyle.fontSize ?? 14) *
+      (widget.textStyle.height ?? 1.0);
 
   @override
   void initState() {
     super.initState();
-    _updateLineCount();
-    widget.controller.addListener(_updateLineCount);
-    widget.scrollController.addListener(_onScroll);
+    _lastText = widget.controller.text;
+    _visual = _compute();
+    widget.controller.addListener(_onChanged);
   }
 
-  void _onScroll() {
-    if (!mounted) return;
-    try {
-      final off = widget.scrollController.hasClients
-          ? widget.scrollController.offset : 0.0;
-      if (_scrollOffset != off) setState(() => _scrollOffset = off);
-    } catch (_) {}
-  }
-
-  void _updateLineCount() {
-    if (!mounted) return;
-    final lines = '\n'.allMatches(widget.controller.text).length + 1;
-    if (_lineCount != lines) setState(() => _lineCount = lines);
+  @override
+  void didUpdateWidget(covariant _LineNumberColumn old) {
+    super.didUpdateWidget(old);
+    if (old.textWidth != widget.textWidth || old.textScaler != widget.textScaler) {
+      _cache.clear();
+      _visual = _compute();
+    }
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_updateLineCount);
-    try { widget.scrollController.removeListener(_onScroll); } catch (_) {}
+    widget.controller.removeListener(_onChanged);
     super.dispose();
+  }
+
+  void _onChanged() {
+    if (!mounted) return;
+    final t = widget.controller.text;
+    if (t == _lastText) return; // caret moves also fire this listener
+    _lastText = t;
+    setState(() => _visual = _compute());
+  }
+
+  List<int> _compute() {
+    final lineH = _lineH;
+    final tp = TextPainter(
+      textDirection: TextDirection.ltr,
+      textScaler: widget.textScaler,
+    );
+    if (_cache.length > 4000) _cache.clear();
+    final out = <int>[];
+    for (final line in widget.controller.text.split('\n')) {
+      if (line.isEmpty) { out.add(1); continue; }
+      out.add(_cache.putIfAbsent(line, () {
+        tp.text = TextSpan(text: line, style: widget.textStyle);
+        tp.layout(maxWidth: widget.textWidth);
+        return max(1, (tp.height / lineH).round());
+      }));
+    }
+    tp.dispose();
+    return out;
   }
 
   @override
   Widget build(BuildContext context) {
-    const double lineH = 21.0;
-    return Container(
-      width: 44,
-      color: AppColors.gutterGray,
-      clipBehavior: Clip.hardEdge,
-      child: Transform.translate(
-        offset: Offset(0, -_scrollOffset),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: List.generate(_lineCount, (i) => SizedBox(
-            height: lineH,
-            child: Text(
-              '${i + 1}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 14,
-                    height: 1.5,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              )),
+    return ClipRect(
+      child: Container(
+        width: 44,
+        color: AppColors.gutterGray,
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: _GutterPainter(
+            visual: _visual,
+            scroll: widget.scrollController,
+            style: widget.textStyle.copyWith(color: Colors.grey),
+            lineH: _lineH,
+            scaler: widget.textScaler,
+          ),
         ),
       ),
     );
   }
+}
+
+class _GutterPainter extends CustomPainter {
+  final List<int> visual;
+  final ScrollController scroll;
+  final TextStyle style;
+  final double lineH;
+  final TextScaler scaler;
+
+  _GutterPainter({
+    required this.visual,
+    required this.scroll,
+    required this.style,
+    required this.lineH,
+    required this.scaler,
+  }) : super(repaint: scroll); // repaint on scroll without setState
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final off = scroll.hasClients ? scroll.offset : 0.0;
+    double y = -off;
+    final tp = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+      textScaler: scaler,
+    );
+    for (int i = 0; i < visual.length; i++) {
+      final h = visual[i] * lineH;
+      if (y + h < 0) { y += h; continue; }
+      if (y > size.height) break;
+      tp.text = TextSpan(text: '${i + 1}', style: style);
+      tp.layout(minWidth: size.width, maxWidth: size.width);
+      tp.paint(canvas, Offset(0, y));
+      y += h;
+    }
+    tp.dispose();
+  }
+
+  @override
+  bool shouldRepaint(covariant _GutterPainter old) =>
+      old.visual != visual || old.style != style || old.lineH != lineH;
 }
 
 class IDEEditorScreen extends StatefulWidget {
@@ -3236,6 +3630,17 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
   final UndoHistoryController _undoController = UndoHistoryController();
   final ScrollController _scrollController = ScrollController();
 
+  // last values handed to onSave — exit only auto-saves if something changed
+  late String _savedName;
+  late String _savedCode;
+
+  static const TextStyle _codeStyle = TextStyle(
+    color: Colors.white,
+    fontFamily: 'monospace',
+    fontSize: 14,
+    height: 1.5,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -3243,6 +3648,8 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
     _codeController = TextEditingController(
       text: widget.file?.content ?? "<html>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>",
     );
+    _savedName = _nameController.text;
+    _savedCode = _codeController.text;
   }
 
   @override
@@ -3253,19 +3660,40 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
     super.dispose();
   }
 
-  Future<bool> _onWillPop() async {
-    // Auto-save on exit — no disruptive dialog
+  void _save() {
     widget.onSave(_nameController.text, _codeController.text);
+    _savedName = _nameController.text;
+    _savedCode = _codeController.text;
+  }
+
+  Future<bool> _onWillPop() async {
+    // Auto-save on exit — only when something changed (an untouched new file
+    // no longer gets created just by opening and leaving the editor)
+    if (_nameController.text != _savedName || _codeController.text != _savedCode) {
+      _save();
+    }
     return true;
+  }
+
+  /// Path of the file being edited, relative to the project root (FIX 6).
+  String _effectiveRelPath() {
+    final typed = _nameController.text.trim();
+    if (typed.contains('/')) {
+      return _safeRelPath(typed) ?? typed.split('/').last;
+    }
+    final dir = widget.file?.path ?? '';
+    return dir.isEmpty ? typed : '$dir/$typed';
   }
 
   Future<void> _runPreview() async {
     final project = widget.project;
     final file    = widget.file;
+    final ext     = _extOf(_nameController.text);
+    final isPage  = {'html', 'htm', 'html3'}.contains(ext);
 
-    // If editing within a project, write all assets to temp dir so relative
-    // paths (images, stylesheets, scripts) resolve correctly in the WebView.
-    if (project != null && file != null) {
+    // Inside a project: write all assets to a temp dir so relative paths
+    // (images, stylesheets, scripts) resolve in the WebView.
+    if (project != null && isPage) {
       try {
         final tmpDir  = await getTemporaryDirectory();
         final projDir = Directory('${tmpDir.path}/htmlrunner_preview');
@@ -3273,32 +3701,25 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
         await projDir.create(recursive: true);
 
         for (final f in project.files) {
-          final subDir = f.path.isNotEmpty
-              ? Directory('${projDir.path}/${f.path}')
-              : projDir;
-          await subDir.create(recursive: true);
-          final dest = '${subDir.path}/${f.name}';
+          if (file != null && f.id == file.id) continue; // written below from the live editor
+          final dest = File('${projDir.path}/${f.fullPath}');
+          await dest.parent.create(recursive: true);
           if (f.isBinary && f.externalPath != null) {
-            await File(f.externalPath!).copy(dest);
+            if (await File(f.externalPath!).exists()) {
+              await File(f.externalPath!).copy(dest.path);
+            }
           } else {
-            // Use editor's live content for the file currently being edited
-            final content = f.id == file.id ? _codeController.text : f.content;
-            await File(dest).writeAsString(content);
+            await dest.writeAsString(f.content);
           }
         }
 
-        final mainSubDir = file.path.isNotEmpty
-            ? Directory('${projDir.path}/${file.path}')
-            : projDir;
-        await mainSubDir.create(recursive: true);
-        final mainPath = '${mainSubDir.path}/${_nameController.text}';
-
-        // Write current editor content (may not be saved yet)
-        await File(mainPath).writeAsString(_codeController.text);
+        final main = File('${projDir.path}/${_effectiveRelPath()}');
+        await main.parent.create(recursive: true);
+        await main.writeAsString(_codeController.text);
 
         if (!mounted) return;
         Navigator.push(context, MaterialPageRoute(
-          builder: (_) => WebRunnerScreen(filePath: mainPath),
+          builder: (_) => WebRunnerScreen(filePath: main.path),
         ));
       } catch (e) {
         Fluttertoast.showToast(msg: 'Preview error: $e');
@@ -3306,7 +3727,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
       return;
     }
 
-    // Standalone file — no assets to resolve, use htmlContent
+    // Standalone file (or css/js) — no assets to resolve, use htmlContent
     if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => WebRunnerScreen(
@@ -3314,7 +3735,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
     ));
   }
 
-    void _showRenameDialog() {
+  void _showRenameDialog() {
     final renameCtrl = TextEditingController(text: _nameController.text);
     showDialog(
       context: context,
@@ -3340,15 +3761,14 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancel"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () {
               String newPath = renameCtrl.text.trim();
               if (newPath.isEmpty) return;
-              if (!newPath.endsWith('.html')) newPath = '$newPath.html';
+              // FIX 15: only add .html when the name has no extension at all
+              final base = newPath.split('/').last;
+              if (!base.contains('.')) newPath = '$newPath.html';
               setState(() => _nameController.text = newPath);
               Navigator.pop(ctx);
               Fluttertoast.showToast(msg: "Renamed to $newPath");
@@ -3362,11 +3782,14 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
 
   void _insertTag(String tag) {
     final text = _codeController.text;
-    final selection = _codeController.selection;
-    final newText = text.replaceRange(selection.start, selection.end, tag);
+    final sel  = _codeController.selection;
+    // FIX 4: selection is (-1,-1) until the field was focused once
+    final start = sel.isValid ? sel.start : text.length;
+    final end   = sel.isValid ? sel.end   : text.length;
+    final newText = text.replaceRange(start, end, tag);
     _codeController.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: selection.start + tag.length),
+      selection: TextSelection.collapsed(offset: start + tag.length),
     );
   }
 
@@ -3386,6 +3809,12 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The TextField merges its style onto the theme's titleMedium; measure the
+    // gutter with the SAME resolved style so wrapped lines match exactly.
+    final resolvedStyle =
+        (Theme.of(context).textTheme.titleMedium ?? const TextStyle()).merge(_codeStyle);
+    final scaler = MediaQuery.textScalerOf(context);
+
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
@@ -3402,17 +3831,11 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
               tooltip: "Rename / Move File",
               onPressed: _showRenameDialog,
             ),
-            IconButton(
-              icon: const Icon(Icons.undo), 
-              onPressed: () => _undoController.undo()
-            ),
-            IconButton(
-              icon: const Icon(Icons.redo), 
-              onPressed: () => _undoController.redo()
-            ),
+            IconButton(icon: const Icon(Icons.undo), onPressed: () => _undoController.undo()),
+            IconButton(icon: const Icon(Icons.redo), onPressed: () => _undoController.redo()),
             IconButton(
               icon: const Icon(Icons.save, color: AppColors.androidGreen),
-              onPressed: () => widget.onSave(_nameController.text, _codeController.text),
+              onPressed: _save,
             ),
             IconButton(
               icon: const Icon(Icons.play_arrow, color: Colors.orange),
@@ -3421,7 +3844,7 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
             IconButton(
               icon: const Icon(Icons.exit_to_app, color: AppColors.errorRed),
               onPressed: () async {
-                if (await _onWillPop()) Navigator.pop(context);
+                if (await _onWillPop() && mounted) Navigator.pop(context);
               },
             ),
           ],
@@ -3437,11 +3860,12 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
                   _toolbarBtn("Copy", () => Clipboard.setData(ClipboardData(text: _codeController.text))),
                   _toolbarBtn("Paste", () async {
                     final data = await Clipboard.getData('text/plain');
-                    if (data != null) _insertTag(data.text!);
+                    final t = data?.text;
+                    if (t != null) _insertTag(t);
                   }),
                   _toolbarBtn("Select All", () => _codeController.selection = TextSelection(
-                    baseOffset: 0, 
-                    extentOffset: _codeController.text.length
+                    baseOffset: 0,
+                    extentOffset: _codeController.text.length,
                   )),
                   _toolbarBtn("<div>", () => _insertTag("<div></div>")),
                   _toolbarBtn("<h1>", () => _insertTag("<h1></h1>")),
@@ -3450,37 +3874,42 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
                 ],
               ),
             ),
-            
+
             Expanded(
-              child: Row(
-                children: [
-                  _LineNumberColumn(
-                    controller: _codeController,
-                    scrollController: _scrollController,
-                  ),
-                  Expanded(
-                    child: Container(
-                      color: AppColors.editorBackground,
-                      child: TextField(
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  const gutterW = 44.0;
+                  const hPad = 8.0;
+                  final textWidth = max(10.0, c.maxWidth - gutterW - hPad * 2);
+                  return Row(
+                    children: [
+                      _LineNumberColumn(
                         controller: _codeController,
                         scrollController: _scrollController,
-                        undoController: _undoController,
-                        maxLines: null,
-                        expands: true,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'monospace',
-                          fontSize: 14,
-                          height: 1.5,
-                        ),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                        textStyle: resolvedStyle,
+                        textScaler: scaler,
+                        textWidth: textWidth,
+                      ),
+                      Expanded(
+                        child: Container(
+                          color: AppColors.editorBackground,
+                          child: TextField(
+                            controller: _codeController,
+                            scrollController: _scrollController,
+                            undoController: _undoController,
+                            maxLines: null,
+                            expands: true,
+                            style: _codeStyle,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(horizontal: hPad),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
           ],
@@ -3535,10 +3964,11 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
       ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted:  (_) => setState(() => _isLoading = true),
+        onPageStarted:  (_) { if (mounted) setState(() => _isLoading = true); },
         onPageFinished: (_) {
+          if (!mounted) return;
           setState(() => _isLoading = false);
-          _injectTouchHandling(_controller); // _controller is assigned before this fires
+          _injectTouchHandling(_controller);
         },
         onNavigationRequest: (_) => NavigationDecision.navigate,
         onWebResourceError: (e) => debugPrint('WebView: ${e.description}'),
@@ -3553,7 +3983,7 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
       await _controller.loadHtmlString(widget.htmlContent ?? '');
     }
 
-    if (mounted) setState(() {}); // trigger rebuild now _controller is ready
+    if (mounted) setState(() {});
   }
 
   Future<void> _setupAndroidFileUpload(WebViewController controller) async {
@@ -3581,15 +4011,20 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
 
         final exts = _extensionsFrom(types);
         if (!await _requestPermission(Permission.storage)) return [];
+        // FIX 5: allowedExtensions requires FileType.custom
         final result = await FilePicker.platform.pickFiles(
-            allowMultiple: isMultiple, allowedExtensions: exts, withData: false);
+          type: exts == null ? FileType.any : FileType.custom,
+          allowMultiple: isMultiple,
+          allowedExtensions: exts,
+          withData: false,
+        );
         if (result == null) return [];
         return result.files
             .where((f) => f.path != null)
             .map((f) => Uri.file(f.path!).toString())
             .toList();
       } catch (e) {
-        debugPrint('File picker error: \$e');
+        debugPrint('File picker error: $e');
         return [];
       }
     });
@@ -3639,27 +4074,84 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
     """);
   }
 
-  void _sendKey(String key) => _controller.runJavaScript(
-      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'\$key',bubbles:true}));");
-
-  void _sendArrow(String dir) {
-    final codes = {'up':38,'down':40,'left':37,'right':39};
-    final keys  = {'up':'ArrowUp','down':'ArrowDown','left':'ArrowLeft','right':'ArrowRight'};
-    _controller.runJavaScript(
-        "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',"
-        "{key:'${keys[dir]}',code:'${keys[dir]}',keyCode:${codes[dir]},bubbles:true}));");
+  // ── Keyboard toolkit (FIX 9 + 23) ────────────────────────────────────────
+  // One dispatcher: fires keydown/keypress/keyup AND, if a text field or
+  // contenteditable has focus (and the page didn't cancel keydown), really
+  // inserts / deletes text there.
+  static const String _keyJs = r'''
+(function(k, c, kc) {
+  var el = document.activeElement || document.body;
+  var o = {key: k, code: c, keyCode: kc, which: kc, bubbles: true, cancelable: true};
+  var ok = el.dispatchEvent(new KeyboardEvent('keydown', o));
+  if (k.length === 1) el.dispatchEvent(new KeyboardEvent('keypress', o));
+  var isField = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+  if (ok && (isField || el.isContentEditable)) {
+    try {
+      if (k.length === 1 || (k === 'Enter' && el.tagName !== 'INPUT')) {
+        var t = (k === 'Enter') ? '\n' : k;
+        if (el.isContentEditable) {
+          document.execCommand('insertText', false, t);
+        } else {
+          el.setRangeText(t, el.selectionStart, el.selectionEnd, 'end');
+          el.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+      } else if (k === 'Backspace' || k === 'Delete') {
+        if (el.isContentEditable) {
+          document.execCommand(k === 'Backspace' ? 'delete' : 'forwardDelete');
+        } else {
+          var s = el.selectionStart, e = el.selectionEnd;
+          if (s === e) {
+            if (k === 'Backspace') s = Math.max(0, s - 1);
+            else e = Math.min(el.value.length, e + 1);
+          }
+          el.setRangeText('', s, e, 'end');
+          el.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+      }
+    } catch (err) {}
   }
+  setTimeout(function() { el.dispatchEvent(new KeyboardEvent('keyup', o)); }, 60);
+})(__K__, __C__, __KC__);
+''';
 
-
-  void _sendSpecialKey(String key, String code, int keyCode) {
-    final js = "(function(){" +
-      "var o={key:'" + key + "',code:'" + code + "',keyCode:" + keyCode.toString() + ",which:" + keyCode.toString() + ",bubbles:true,cancelable:true};" +
-      "var el=document.activeElement||document.body;" +
-      "el.dispatchEvent(new KeyboardEvent('keydown',o));" +
-      "setTimeout(function(){el.dispatchEvent(new KeyboardEvent('keyup',o));},80);" +
-      "})();";
+  void _dispatchKey(String key, String code, int keyCode) {
+    final js = _keyJs
+        .replaceFirst('__K__', jsonEncode(key))
+        .replaceFirst('__C__', jsonEncode(code))
+        .replaceFirst('__KC__', keyCode.toString());
     _controller.runJavaScript(js);
   }
+
+  void _sendKey(String key) {
+    String code = key;
+    int kc = 0;
+    if (key.length == 1) {
+      final cu = key.toUpperCase().codeUnitAt(0);
+      if (cu >= 65 && cu <= 90) {
+        code = 'Key${key.toUpperCase()}'; kc = cu;
+      } else if (cu >= 48 && cu <= 57) {
+        code = 'Digit$key'; kc = cu;
+      } else if (key == ' ') {
+        code = 'Space'; kc = 32;
+      } else {
+        code = ''; kc = key.codeUnitAt(0);
+      }
+    } else if (key == 'Enter') {
+      kc = 13;
+    } else if (key == 'Backspace') {
+      kc = 8;
+    }
+    _dispatchKey(key, code, kc);
+  }
+
+  void _sendArrow(String dir) {
+    const codes = {'up': 38, 'down': 40, 'left': 37, 'right': 39};
+    const keys  = {'up': 'ArrowUp', 'down': 'ArrowDown', 'left': 'ArrowLeft', 'right': 'ArrowRight'};
+    _dispatchKey(keys[dir]!, keys[dir]!, codes[dir]!);
+  }
+
+  void _sendSpecialKey(String key, String code, int keyCode) =>
+      _dispatchKey(key, code, keyCode);
 
   void _togglePanel() {
     setState(() {
@@ -3682,7 +4174,6 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
           child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
         ),
       );
-
 
   Widget _imgBtn(String asset, VoidCallback onTap) => SizedBox(
     width: 52, height: 46,
@@ -3742,141 +4233,130 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
                       child: SingleChildScrollView(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // drag handle
-                        Container(
-                            margin: const EdgeInsets.symmetric(vertical: 8),
-                            width: 40, height: 4,
-                            decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.4),
-                                borderRadius: BorderRadius.circular(2))),
-                        if (!_isWinMode) ...[
-                          // ── Normal keyboard ──────────────────────────
-                          // Arrow keys
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              _toolBtn('←', () => _sendArrow('left')),
-                              const SizedBox(width: 16),
-                              _toolBtn('↑', () => _sendArrow('up')),
-                              const SizedBox(width: 16),
-                              _toolBtn('↓', () => _sendArrow('down')),
-                              const SizedBox(width: 16),
-                              _toolBtn('→', () => _sendArrow('right')),
-                            ]),
-                          ),
-                          // Number row
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            child: Wrap(spacing: 6, children:
-                                '1234567890'.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
-                          ),
-                          // QWERTY rows
-                          for (final row in ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'])
+                          children: [
+                            // drag handle
+                            Container(
+                                margin: const EdgeInsets.symmetric(vertical: 8),
+                                width: 40, height: 4,
+                                decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.4),
+                                    borderRadius: BorderRadius.circular(2))),
+                            if (!_isWinMode) ...[
+                              // ── Normal keyboard ──────────────────────────
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                  _toolBtn('←', () => _sendArrow('left')),
+                                  const SizedBox(width: 16),
+                                  _toolBtn('↑', () => _sendArrow('up')),
+                                  const SizedBox(width: 16),
+                                  _toolBtn('↓', () => _sendArrow('down')),
+                                  const SizedBox(width: 16),
+                                  _toolBtn('→', () => _sendArrow('right')),
+                                ]),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: Wrap(spacing: 6, children:
+                                    '1234567890'.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                              ),
+                              for (final row in ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'])
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  child: Wrap(spacing: 6, children:
+                                      row.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                  _toolBtn('Space', () => _sendKey(' '), width: 100),
+                                  const SizedBox(width: 8),
+                                  _toolBtn('Enter', () => _sendKey('Enter')),
+                                  const SizedBox(width: 8),
+                                  _toolBtn('⌫', () => _sendKey('Backspace')),
+                                  const SizedBox(width: 8),
+                                  _imgBtn('assets/ic_aero_windows.png',
+                                    () => setState(() => _isWinMode = true)),
+                                ]),
+                              ),
+                            ] else ...[
+                              // ── Special / Windows keyboard ────────────────
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: Wrap(spacing: 6, children: [
+                                  _toolBtn('Esc',  () => _sendSpecialKey('Escape', 'Escape', 27)),
+                                  _toolBtn('F1',   () => _sendSpecialKey('F1',  'F1',  112)),
+                                  _toolBtn('F2',   () => _sendSpecialKey('F2',  'F2',  113)),
+                                  _toolBtn('F3',   () => _sendSpecialKey('F3',  'F3',  114)),
+                                  _toolBtn('F4',   () => _sendSpecialKey('F4',  'F4',  115)),
+                                  _toolBtn('F5',   () => _sendSpecialKey('F5',  'F5',  116)),
+                                ]),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: Wrap(spacing: 6, children: [
+                                  _toolBtn('F6',   () => _sendSpecialKey('F6',  'F6',  117)),
+                                  _toolBtn('F7',   () => _sendSpecialKey('F7',  'F7',  118)),
+                                  _toolBtn('F8',   () => _sendSpecialKey('F8',  'F8',  119)),
+                                  _toolBtn('F9',   () => _sendSpecialKey('F9',  'F9',  120)),
+                                  _toolBtn('F10',  () => _sendSpecialKey('F10', 'F10', 121)),
+                                ]),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: Wrap(spacing: 6, children: [
+                                  _toolBtn('Ctrl',  () => _sendSpecialKey('Control', 'ControlLeft', 17), width: 62),
+                                  _toolBtn('Shift', () => _sendSpecialKey('Shift',   'ShiftLeft',   16), width: 62),
+                                  _toolBtn('Alt',   () => _sendSpecialKey('Alt',     'AltLeft',     18)),
+                                  _toolBtn('Tab',   () => _sendSpecialKey('Tab',     'Tab',          9)),
+                                  _toolBtn('Caps',  () => _sendSpecialKey('CapsLock','CapsLock',    20)),
+                                ]),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: Wrap(spacing: 6, children: [
+                                  _toolBtn('Ins',   () => _sendSpecialKey('Insert',  'Insert',   45)),
+                                  _toolBtn('Del',   () => _sendSpecialKey('Delete',  'Delete',   46)),
+                                  _toolBtn('Home',  () => _sendSpecialKey('Home',    'Home',     36)),
+                                  _toolBtn('End',   () => _sendSpecialKey('End',     'End',      35)),
+                                  _toolBtn('PgUp',  () => _sendSpecialKey('PageUp',  'PageUp',   33)),
+                                  _toolBtn('PgDn',  () => _sendSpecialKey('PageDown','PageDown', 34)),
+                                ]),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                  _imgBtn('assets/ic_aero_android.png',
+                                    () => setState(() => _isWinMode = false)),
+                                  const SizedBox(width: 10),
+                                  const Text('Back to keyboard',
+                                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                ]),
+                              ),
+                            ],
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              child: Wrap(spacing: 6, children:
-                                  row.split('').map((c) => _toolBtn(c, () => _sendKey(c))).toList()),
+                              padding: const EdgeInsets.only(bottom: 12, top: 4),
+                              child: ElevatedButton(
+                                onPressed: _togglePanel,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade700,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(20)),
+                                ),
+                                child: const Text('Close',
+                                    style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          // Space / Enter / Backspace / Windows key
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              _toolBtn('Space', () => _sendKey(' '), width: 100),
-                              const SizedBox(width: 8),
-                              _toolBtn('Enter', () => _sendKey('Enter')),
-                              const SizedBox(width: 8),
-                              _toolBtn('⌫', () => _sendKey('Backspace')),
-                              const SizedBox(width: 8),
-                              // Windows key — switch to special keys panel
-                              _imgBtn('assets/ic_aero_windows.png',
-                                () => setState(() => _isWinMode = true)),
-                            ]),
-                          ),
-                        ] else ...[
-                          // ── Special / Windows keyboard ────────────────
-                          // Esc + F1–F5
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            child: Wrap(spacing: 6, children: [
-                              _toolBtn('Esc',  () => _sendSpecialKey('Escape', 'Escape', 27)),
-                              _toolBtn('F1',   () => _sendSpecialKey('F1',  'F1',  112)),
-                              _toolBtn('F2',   () => _sendSpecialKey('F2',  'F2',  113)),
-                              _toolBtn('F3',   () => _sendSpecialKey('F3',  'F3',  114)),
-                              _toolBtn('F4',   () => _sendSpecialKey('F4',  'F4',  115)),
-                              _toolBtn('F5',   () => _sendSpecialKey('F5',  'F5',  116)),
-                            ]),
-                          ),
-                          // F6–F10
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            child: Wrap(spacing: 6, children: [
-                              _toolBtn('F6',   () => _sendSpecialKey('F6',  'F6',  117)),
-                              _toolBtn('F7',   () => _sendSpecialKey('F7',  'F7',  118)),
-                              _toolBtn('F8',   () => _sendSpecialKey('F8',  'F8',  119)),
-                              _toolBtn('F9',   () => _sendSpecialKey('F9',  'F9',  120)),
-                              _toolBtn('F10',  () => _sendSpecialKey('F10', 'F10', 121)),
-                            ]),
-                          ),
-                          // Modifier keys
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            child: Wrap(spacing: 6, children: [
-                              _toolBtn('Ctrl',  () => _sendSpecialKey('Control', 'ControlLeft', 17), width: 62),
-                              _toolBtn('Shift', () => _sendSpecialKey('Shift',   'ShiftLeft',   16), width: 62),
-                              _toolBtn('Alt',   () => _sendSpecialKey('Alt',     'AltLeft',     18)),
-                              _toolBtn('Tab',   () => _sendSpecialKey('Tab',     'Tab',          9)),
-                              _toolBtn('Caps',  () => _sendSpecialKey('CapsLock','CapsLock',    20)),
-                            ]),
-                          ),
-                          // Nav cluster
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            child: Wrap(spacing: 6, children: [
-                              _toolBtn('Ins',   () => _sendSpecialKey('Insert',  'Insert',   45)),
-                              _toolBtn('Del',   () => _sendSpecialKey('Delete',  'Delete',   46)),
-                              _toolBtn('Home',  () => _sendSpecialKey('Home',    'Home',     36)),
-                              _toolBtn('End',   () => _sendSpecialKey('End',     'End',      35)),
-                              _toolBtn('PgUp',  () => _sendSpecialKey('PageUp',  'PageUp',   33)),
-                              _toolBtn('PgDn',  () => _sendSpecialKey('PageDown','PageDown', 34)),
-                            ]),
-                          ),
-                          // Back to normal keyboard — Android icon
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              _imgBtn('assets/ic_aero_android.png',
-                                () => setState(() => _isWinMode = false)),
-                              const SizedBox(width: 10),
-                              const Text('Back to keyboard',
-                                style: TextStyle(color: Colors.white70, fontSize: 12)),
-                            ]),
-                          ),
-                        ],
-                        // Close button (always visible)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12, top: 4),
-                          child: ElevatedButton(
-                            onPressed: _togglePanel,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red.shade700,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20)),
-                            ),
-                            child: const Text('Close',
-                                style: TextStyle(fontWeight: FontWeight.bold)),
-                          ),
+                          ],
                         ),
-                      ],
-                      ),  // Column
-                    ),  // SingleChildScrollView
-                  ),  // Container
-                ),  // ConstrainedBox
-              ),  // Transform.translate
-            ),  // AnimatedBuilder
-          ),  // Positioned
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
-      ),  // GestureDetector / Stack
+      ),
     );
   }
 }
@@ -3904,22 +4384,19 @@ class FileTreeView extends StatefulWidget {
 }
 
 class _FileTreeViewState extends State<FileTreeView> {
-  // Tracks which folder paths are expanded
   final Set<String> _expanded = {};
 
   @override
   void initState() {
     super.initState();
-    // Auto-expand root-level folders
     for (final f in widget.project.folders) {
       if (!f.contains('/')) _expanded.add(f);
     }
   }
 
-  // ── Icon helper ──────────────────────────────────────────────────────────
   static IconData _fileIcon(FileModel f) {
+    final ext = f.ext;
     if (f.isBinary) {
-      final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
       if ({'jpg','jpeg','png','gif','webp','bmp','svg'}.contains(ext)) return Icons.image;
       if ({'mp4','mov','avi','mkv','webm'}.contains(ext))              return Icons.videocam;
       if ({'mp3','wav','ogg','aac','flac'}.contains(ext))              return Icons.audiotrack;
@@ -3927,28 +4404,27 @@ class _FileTreeViewState extends State<FileTreeView> {
       if ({'zip','tar','gz','rar'}.contains(ext))                      return Icons.folder_zip;
       return Icons.attach_file;
     }
-    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
     if (ext == 'css')  return Icons.palette;
     if (ext == 'js')   return Icons.javascript;
     if (ext == 'json') return Icons.data_object;
     if (ext == 'svg')  return Icons.auto_awesome_mosaic;
+    if (ext == 'txt' || ext == 'md') return Icons.description;
+    if (ext == 'xml')  return Icons.code;
     return Icons.html;
   }
 
   Color _fileIconColor(FileModel f) {
     if (f.isBinary) return Colors.grey.shade400;
-    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+    final ext = f.ext;
     if (ext == 'css')  return Colors.blue.shade300;
     if (ext == 'js')   return Colors.yellow.shade600;
     return AppColors.folderYellow;
   }
 
-  // ── Recursive tree builder ────────────────────────────────────────────────
   List<Widget> _buildLevel(String parentPath, int depth) {
     final indent = depth * 20.0;
     final widgets = <Widget>[];
 
-    // Subfolders at this level
     final subfolders = widget.project.getSubfolders(parentPath);
     for (final folder in subfolders) {
       final name       = folder.split('/').last;
@@ -3981,7 +4457,6 @@ class _FileTreeViewState extends State<FileTreeView> {
         ),
       ));
 
-      // Vertical connector line behind expanded content
       if (isExpanded) {
         widgets.add(IntrinsicHeight(
           child: Row(
@@ -4006,7 +4481,6 @@ class _FileTreeViewState extends State<FileTreeView> {
       }
     }
 
-    // Files at this level
     final files = widget.project.getFilesInFolder(parentPath);
     for (final file in files) {
       widgets.add(InkWell(
@@ -4022,15 +4496,15 @@ class _FileTreeViewState extends State<FileTreeView> {
                 file.name,
                 style: TextStyle(
                   fontSize: 13,
-                  color: file.isEditable ? null : Colors.grey.shade500,
-                  fontStyle: file.isEditable ? FontStyle.normal : FontStyle.italic,
+                  color: file.isBinary ? Colors.grey.shade500 : null,
+                  fontStyle: file.isBinary ? FontStyle.italic : FontStyle.normal,
                 ),
               ),
             ),
-            if (!file.isEditable)
+            if (file.isBinary)
               Tooltip(
-                message: 'Asset — cannot be opened in IDE',
-                child: Icon(Icons.lock_outline, size: 14, color: Colors.grey.shade500),
+                message: 'Opens with a system app',
+                child: Icon(Icons.open_in_new, size: 14, color: Colors.grey.shade500),
               ),
             if (file.lastEdit.isNotEmpty)
               Text(file.lastEdit,
@@ -4073,6 +4547,7 @@ class _FileTreeViewState extends State<FileTreeView> {
 
 class ProjectDetailScreen extends StatefulWidget {
   final ProjectModel project;
+  final Listenable refresh; // FIX 21: fires after every save -> rebuild
   final Function(FileModel) onFileTap;
   final Function(FileModel) onFileLongPress;
   final Function(String)    onFolderLongPress;
@@ -4081,6 +4556,7 @@ class ProjectDetailScreen extends StatefulWidget {
   const ProjectDetailScreen({
     Key? key,
     required this.project,
+    required this.refresh,
     required this.onFileTap,
     required this.onFileLongPress,
     required this.onFolderLongPress,
@@ -4092,106 +4568,111 @@ class ProjectDetailScreen extends StatefulWidget {
 }
 
 class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
-  void refresh() => setState(() {});
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Text(widget.project.name),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.create_new_folder_outlined),
-            tooltip: 'Add file',
-            onPressed: widget.onAddFile,
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          // Project header card
-          Card(
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 56, height: 56,
-                    child: widget.project.iconPath != null
-                        ? Image.file(File(widget.project.iconPath!),
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                const Icon(Icons.terrain, size: 36))
-                        : const Icon(Icons.terrain, size: 36),
+    return AnimatedBuilder(
+      animation: widget.refresh,
+      builder: (context, _) => Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          title: Text(widget.project.name),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.create_new_folder_outlined),
+              tooltip: 'Add file',
+              onPressed: widget.onAddFile,
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 56, height: 56,
+                      child: widget.project.iconPath != null
+                          ? Image.file(File(widget.project.iconPath!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.terrain, size: 36))
+                          : const Icon(Icons.terrain, size: 36),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.project.description.isNotEmpty)
-                      Text(widget.project.description,
-                        style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 13)),
-                    const SizedBox(height: 4),
-                    Text('Created ${widget.project.createdAt}  •  '
-                         '${widget.project.files.length} file(s)',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                  ],
-                )),
-              ]),
-            ),
-          ),
-
-          // Add file button
-          InkWell(
-            onTap: widget.onAddFile,
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.linkBlue.withOpacity(0.5),
-                  style: BorderStyle.solid),
-                borderRadius: BorderRadius.circular(8),
+                  const SizedBox(width: 14),
+                  Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (widget.project.description.isNotEmpty)
+                        Text(widget.project.description,
+                          style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 13)),
+                      const SizedBox(height: 4),
+                      Text('Created ${widget.project.createdAt}  •  '
+                           '${widget.project.files.length} file(s)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                    ],
+                  )),
+                ]),
               ),
-              child: const Row(children: [
-                Icon(Icons.add, color: AppColors.linkBlue, size: 20),
-                SizedBox(width: 8),
-                Text('Add New File to Project',
-                  style: TextStyle(color: AppColors.linkBlue,
-                    fontWeight: FontWeight.w600)),
-              ]),
             ),
-          ),
 
-          // File tree
-          FileTreeView(
-            project: widget.project,
-            onFileTap:         widget.onFileTap,
-            onFileLongPress:   widget.onFileLongPress,
-            onFolderLongPress: widget.onFolderLongPress,
-          ),
-        ],
+            InkWell(
+              onTap: widget.onAddFile,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.linkBlue.withOpacity(0.5),
+                    style: BorderStyle.solid),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.add, color: AppColors.linkBlue, size: 20),
+                  SizedBox(width: 8),
+                  Text('Add New File to Project',
+                    style: TextStyle(color: AppColors.linkBlue,
+                      fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+
+            FileTreeView(
+              project: widget.project,
+              onFileTap:         widget.onFileTap,
+              onFileLongPress:   widget.onFileLongPress,
+              onFolderLongPress: widget.onFolderLongPress,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// Wraps CSS/JS content in a minimal HTML page for preview.
-// HTML/HTML3 is returned unchanged.
-String _buildPreviewHtml(String filename, String content) {
-  final ext = filename.contains('.') ? filename.split('.').last.toLowerCase() : 'html';
-  if (ext == 'css') {
-    return """<!DOCTYPE html>
+// ─────────────────────────────────────────────────────────────────────────────
+// PREVIEW WRAPPER (FIX 18)
+// ─────────────────────────────────────────────────────────────────────────────
+// Raw strings + placeholder splitting: no Dart escaping surprises. The old JS
+// wrapper had a real newline inside a JS string literal (syntax error). User JS
+// now runs in its own <script>, with errors reported via window.onerror.
+
+String _fillTemplate(String template, String content) {
+  final parts = template.split('%%CONTENT%%');
+  return parts[0] + content + parts[1];
+}
+
+const String _cssPreviewTemplate = r'''<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>$content</style>
+<style>%%CONTENT%%</style>
 </head>
 <body>
 <h1>CSS Preview</h1>
@@ -4201,10 +4682,9 @@ String _buildPreviewHtml(String filename, String content) {
 <a href="#" class="link">Example link</a>
 <ul><li class="item">List item 1</li><li class="item">List item 2</li></ul>
 </body>
-</html>""";
-  }
-  if (ext == 'js') {
-    return """<!DOCTYPE html>
+</html>''';
+
+const String _jsPreviewTemplate = r'''<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -4216,18 +4696,42 @@ String _buildPreviewHtml(String filename, String content) {
 <div id="output"></div>
 <script>
 (function(){
-  const _log = console.log.bind(console);
-  console.log = function(...a){ 
-    document.getElementById('output').textContent += a.join(' ') + '\n'; 
-    _log(...a); 
-  };
-  try { $content } catch(e) { 
-    document.getElementById('output').textContent += '\u274c ' + e; 
+  var out = document.getElementById('output');
+  function show(prefix, args) {
+    out.textContent += prefix + Array.prototype.map.call(args, function(a) {
+      try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }
+      catch (e) { return String(a); }
+    }).join(' ') + '\n';
   }
+  ['log', 'info', 'warn', 'error'].forEach(function(level) {
+    var orig = console[level].bind(console);
+    console[level] = function() {
+      show(level === 'log' || level === 'info' ? '' : level.toUpperCase() + ': ', arguments);
+      orig.apply(null, arguments);
+    };
+  });
+  window.onerror = function(msg, src, line) {
+    out.textContent += '\u274c ' + msg + (line ? ' (line ' + line + ')' : '') + '\n';
+    return true;
+  };
 })();
 </script>
+<script>
+%%CONTENT%%
+</script>
 </body>
-</html>""";
+</html>''';
+
+// Wraps CSS/JS content in a minimal HTML page for preview.
+// HTML/HTML3 is returned unchanged.
+String _buildPreviewHtml(String filename, String content) {
+  final ext = filename.contains('.') ? filename.split('.').last.toLowerCase() : 'html';
+  if (ext == 'css') {
+    return _fillTemplate(_cssPreviewTemplate, content);
+  }
+  if (ext == 'js') {
+    // a literal </script> inside user code would end the block early
+    return _fillTemplate(_jsPreviewTemplate, content.replaceAll('</script', r'<\/script'));
   }
   return content; // html / html3 — use as-is
 }
@@ -4243,24 +4747,26 @@ class FlappyFishGame extends StatefulWidget {
   _FlappyFishGameState createState() => _FlappyFishGameState();
 }
 
-class _FlappyFishGameState extends State<FlappyFishGame>
-    with SingleTickerProviderStateMixin {
-  // ── Physics ────────────────────────────────────────────────────────────────
-  double fishY        = 0.5;
-  double velocity     = 0;
-  final double gravity = 0.25;
-  final double jump    = -4.5;
+class _FlappyFishGameState extends State<FlappyFishGame> {
+  // ── Physics (FIX 27) ───────────────────────────────────────────────────────
+  // Positions are fractions of the screen; velocities/gravity are per SECOND
+  // (the old values were tuned for per-frame and sent the fish to the ceiling).
+  double fishY    = 0.5;
+  double velocity = 0;
+  static const double gravity    = 2.4;   // screen-heights / s²
+  static const double jumpV      = -0.85; // screen-heights / s
+  static const double pipeSpeed  = 0.55;  // screen-widths  / s
+  static const double pipeWidth  = 0.18;
+  static const double pipeGap    = 0.30;
 
-  // ── Pipe ───────────────────────────────────────────────────────────────────
   double pipeX         = 1.0;
-  final double pipeWidth = 0.18;
-  final double pipeGap   = 0.28;
-  double pipeHeightTop   = 0.3;
+  double pipeHeightTop = 0.3;
+  bool   _scored       = false;
 
-  // ── Parallax ───────────────────────────────────────────────────────────────
-  double bgOffsetFar  = 0;
-  double bgOffsetMid  = 0;
-  double bgOffsetFore = 0;
+  // ── Parallax (FIX 29): progress 0..1 of one screen width ──────────────────
+  double bgFar  = 0;
+  double bgMid  = 0;
+  double bgFore = 0;
 
   // ── Game state ─────────────────────────────────────────────────────────────
   int   score       = 0;
@@ -4269,18 +4775,23 @@ class _FlappyFishGameState extends State<FlappyFishGame>
   Timer? _gameTimer;
 
   // Fixed-timestep loop
-  double _lastTs    = 0;
-  double _accum     = 0;
-  final double _dt  = 1 / 60;
+  double _lastTs = 0;
+  double _accum  = 0;
+  static const double _dt = 1 / 60;
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  // Screen size in px (updated in build) — used by the pixel-space hitbox
+  double _sw = 400;
+  double _sh = 800;
+  double get _fishSize => _sw * 0.1;
+
   @override
   void dispose() {
     _gameTimer?.cancel();
     super.dispose();
   }
 
-  // ── Game loop ──────────────────────────────────────────────────────────────
+  double _newPipeTop() => Random().nextDouble() * 0.4 + 0.12;
+
   void _startGame() {
     setState(() {
       gameStarted   = true;
@@ -4288,11 +4799,10 @@ class _FlappyFishGameState extends State<FlappyFishGame>
       fishY         = 0.5;
       velocity      = 0;
       pipeX         = 1.0;
+      _scored       = false;
       score         = 0;
-      pipeHeightTop = Random().nextDouble() * 0.45 + 0.2;
-      bgOffsetFar   = 0;
-      bgOffsetMid   = 0;
-      bgOffsetFore  = 0;
+      pipeHeightTop = _newPipeTop();
+      bgFar = bgMid = bgFore = 0;
       _lastTs       = DateTime.now().millisecondsSinceEpoch / 1000;
       _accum        = 0;
     });
@@ -4303,48 +4813,60 @@ class _FlappyFishGameState extends State<FlappyFishGame>
   void _tick() {
     if (!gameStarted || gameOver) return;
     final now = DateTime.now().millisecondsSinceEpoch / 1000;
-    final frame = (now - _lastTs).clamp(0.0, 0.033);
+    final frame = (now - _lastTs).clamp(0.0, 0.05);
     _lastTs = now;
     _accum += frame;
-    while (_accum >= _dt) {
-      _updatePhysics();
-      _updatePipe();
-      _updateParallax();
-      _checkCollision();
+    while (_accum >= _dt && !gameOver) {
+      _step();
       _accum -= _dt;
     }
     if (mounted) setState(() {});
   }
 
-  void _updatePhysics() {
+  void _step() {
+    // physics
     velocity += gravity * _dt;
-    fishY    += velocity  * _dt;
-    if (fishY < 0.05) { fishY = 0.05; velocity = 0; }
-    if (fishY > 0.95) { fishY = 0.95; velocity = 0; }
-  }
+    fishY    += velocity * _dt;
 
-  void _updatePipe() {
-    pipeX -= 2.5 * _dt;
+    // pipe
+    pipeX -= pipeSpeed * _dt;
     if (pipeX < -pipeWidth) {
       pipeX         = 1.0;
-      pipeHeightTop = Random().nextDouble() * 0.45 + 0.2;
+      pipeHeightTop = _newPipeTop();
+      _scored       = false;
+    }
+
+    // parallax (slow far layer, fast foreground)
+    bgFar  = (bgFar  + 0.03 * _dt) % 1.0;
+    bgMid  = (bgMid  + 0.08 * _dt) % 1.0;
+    bgFore = (bgFore + 0.15 * _dt) % 1.0;
+
+    _checkCollision();
+  }
+
+  // FIX 28: hitbox is a circle around the fish's drawn CENTER, tested against
+  // the pipe rectangles in pixels.
+  void _checkCollision() {
+    final r  = _fishSize * 0.38;
+    final fx = _sw * 0.12 + _fishSize / 2;
+    final fy = fishY * _sh;
+
+    // floor / ceiling
+    if (fy - r <= 0 || fy + r >= _sh) { _endGame(); return; }
+
+    final pipeLeft  = pipeX * _sw;
+    final pipeRight = pipeLeft + pipeWidth * _sw;
+    if (fx + r > pipeLeft && fx - r < pipeRight) {
+      final gapTop    = pipeHeightTop * _sh;
+      final gapBottom = gapTop + pipeGap * _sh;
+      if (fy - r < gapTop || fy + r > gapBottom) { _endGame(); return; }
+    }
+
+    // score when the pipe has fully passed the fish
+    if (!_scored && pipeRight < fx - r) {
+      _scored = true;
       score++;
     }
-  }
-
-  void _updateParallax() {
-    bgOffsetFar  = (bgOffsetFar  - 0.001) % -1;
-    bgOffsetMid  = (bgOffsetMid  - 0.003) % -1;
-    bgOffsetFore = (bgOffsetFore - 0.005) % -1;
-  }
-
-  void _checkCollision() {
-    final inPipeX = pipeX < 0.22 && pipeX + pipeWidth > 0.08;
-    if (inPipeX) {
-      final inGap = fishY >= pipeHeightTop && fishY + 0.08 <= pipeHeightTop + pipeGap;
-      if (!inGap) _endGame();
-    }
-    if (fishY <= 0.05 || fishY >= 0.95) _endGame();
   }
 
   void _endGame() {
@@ -4357,36 +4879,33 @@ class _FlappyFishGameState extends State<FlappyFishGame>
   void _jump() {
     if (gameOver) return;
     if (!gameStarted) { _startGame(); return; }
-    setState(() => velocity = jump);
+    setState(() => velocity = jumpV);
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final sw       = MediaQuery.of(context).size.width;
     final sh       = MediaQuery.of(context).size.height;
-    final fishSize = sw * 0.1;
+    _sw = sw;
+    _sh = sh;
+    final fishSize = _fishSize;
     final pipeW    = pipeWidth * sw;
     final gapPx    = pipeGap   * sh;
 
-    // Background parallax helper — tries the sprite, falls back to colour
-    Widget bgLayer(String asset, Color fallback, double offset) => Positioned.fill(
-      child: Transform.translate(
-        offset: Offset(offset * sw, 0),
-        child: Row(children: [
-          Expanded(
-            child: Image.asset(asset,
-              width: sw, height: sh, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(color: fallback)),
-          ),
-          Expanded(
-            child: Image.asset(asset,
-              width: sw, height: sh, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(color: fallback)),
-          ),
+    // FIX 29: two full-width copies side by side, shifted by -progress*width.
+    // When progress wraps 1 -> 0 the second copy sits exactly where the first
+    // started, so the loop is seamless.
+    Widget bgLayer(String asset, Color fallback, double progress) {
+      Widget img() => Image.asset(asset,
+          width: sw, height: sh, fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(width: sw, height: sh, color: fallback));
+      return Positioned.fill(
+        child: Stack(children: [
+          Positioned(left: -progress * sw,      top: 0, width: sw, height: sh, child: img()),
+          Positioned(left: sw - progress * sw,  top: 0, width: sw, height: sh, child: img()),
         ]),
-      ),
-    );
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.cyan.shade800,
@@ -4396,10 +4915,9 @@ class _FlappyFishGameState extends State<FlappyFishGame>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Background layers — sprites load if present, colour fallback if not
-            bgLayer('assets/background_far.png', Colors.cyan.shade700, bgOffsetFar),
-            bgLayer('assets/background_mid.png', Colors.cyan.shade600, bgOffsetMid),
-            bgLayer('assets/background.png',     Colors.cyan.shade500, bgOffsetFore),
+            bgLayer('assets/background_far.png', Colors.cyan.shade700, bgFar),
+            bgLayer('assets/background_mid.png', Colors.cyan.shade600, bgMid),
+            bgLayer('assets/background.png',     Colors.cyan.shade500, bgFore),
 
             // Top pipe
             Positioned(
@@ -4433,18 +4951,21 @@ class _FlappyFishGameState extends State<FlappyFishGame>
               ),
             ),
 
-            // Fish — sprite if assets/fish.png exists, emoji fallback otherwise
+            // Fish (drawn centered on fishY — same point the hitbox uses)
             Positioned(
               left: sw * 0.12,
               top:  fishY * sh - fishSize / 2,
               child: Transform.rotate(
-                angle: (velocity / 15).clamp(-0.8, 0.8),
+                angle: (velocity * 0.6).clamp(-0.5, 0.8),
                 child: Image.asset(
                   'assets/fish.png',
                   width: fishSize, height: fishSize, fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => Center(
-                    child: Text('🐟',
-                      style: TextStyle(fontSize: fishSize * 0.8))),
+                  errorBuilder: (_, __, ___) => SizedBox(
+                    width: fishSize, height: fishSize,
+                    child: Center(
+                      child: Text('🐟',
+                        style: TextStyle(fontSize: fishSize * 0.8))),
+                  ),
                 ),
               ),
             ),
