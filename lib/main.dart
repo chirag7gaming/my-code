@@ -1182,7 +1182,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text("🐟 Update Available"),
+        title: const Text("🆙 Update Available"),
         content: Text("Version $version is ready to download."),
         actions: [
           TextButton(
@@ -1305,9 +1305,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
               _buildInfoRow("🔧", "SDK",         "Android SDK 36"),
               _buildInfoRow("📦", "Package",     "com.chirag.html_runner"),
-              _buildInfoRow("👨\u200d💻", "Dev", "Chirag Shylendra"),
+              _buildInfoRow("👨‍💻", "Dev",         "Chirag Shylendra"),
               _buildInfoRow("🐙", "GitHub",      "@chirag7gaming"),
-              _buildInfoRow("🌪️", "Company",     "Fish Gang"
+              _buildInfoRow("🌪️", "Company",     "Fish Gang"),
               _buildInfoRow("⚖️", "License",     "MIT License"),
               _buildInfoRow("💡", "Inspiration", "Black India Day and also 67"),
               const SizedBox(height: 8),
