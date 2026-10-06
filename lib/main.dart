@@ -204,7 +204,7 @@ class SecurityCodeService {
 
   static Future<void> _init() async {
     if (_inited) return;
-    const android = AndroidInitializationSettings('notification_icon.png');
+    const android = AndroidInitializationSettings('notification_icon');
     await _plugin.initialize(const InitializationSettings(android: android));
     _inited = true;
   }
@@ -1299,7 +1299,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildInfoRow("📱", "App Name",    "HTML Runner"),
-              _buildInfoRow("🔢", "Version",     "1.6.7+1"),
+              _buildInfoRow("🔢", "Version",     "1.6.7+3"),
               _buildInfoRow("📝", "Lines",       "5059 lines"),
               _buildInfoRow("🎨", "UI Style",    "Holo Inspired"),
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
