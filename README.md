@@ -1,5 +1,5 @@
 # HTML Runner Pro 🐟
-**Version 1.6.7+2** — Made by Chirag Shylendra / Fish Gang Co.
+**Version 1.6.7+3** — Made by Chirag Shylendra / Fish Gang Co.
 
 A Holo-themed Flutter app for Android to create, organise, and run HTML projects locally. Zero ads. Forever free. Made in India.
 
@@ -10,7 +10,8 @@ A Holo-themed Flutter app for Android to create, organise, and run HTML projects
 - **File import** — Now accepts any file type. HTML files open in the IDE; all others open via Android's system app chooser.
 - **IDE line numbers fixed** — Gutter rewritten with `Transform.translate` scroll sync. No more misalignment or white-out at bottom.
 - **SD card install** — `android:installLocation="preferExternal"` so Android can move the app to SD card.
-- **Fat APK** — Single APK covering armeabi-v7a (Redmi Go) and arm64-v8a (DOMO Slate).
+- **Fat APK** — Single APK covering armeabi-v7a and arm64-v8a.
+- **Enhanced Security** — Real Number code is notified to you, rather than a fake dummy.
 
 ## 📂 Project Structure
 ```
@@ -21,8 +22,10 @@ android/
     build.gradle     — minSdk 21, targetSdk 33, abiFilters arm+arm64
     src/main/
       AndroidManifest.xml
+      res/drawable/notification_icon.PNG
       res/values/styles.xml        — LaunchTheme (fixes blank launch screen)
       res/values-night/styles.xml  — dark variant
+      res/mipmap-*/launcher_icon.png
 codemagic.yaml       — CI: flutter build apk --release (fat APK)
 pubspec.yaml
 ```
@@ -43,4 +46,4 @@ No `google-services.json` required — auth is pure HTTP via the `http` package.
 
 ## ⚖️ License & Attribution
 MIT License.
-**Redistribution requirement:** Credit must be given to the original author: **Chirag Shylendra** (Fish Gang Co.).
+**Redistribution requirement (Mandatory):** Credit must be given to the original author: **Chirag Shylendra** (Fish Gang Co.).
