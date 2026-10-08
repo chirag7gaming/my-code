@@ -19,6 +19,27 @@ import 'package:http/http.dart' as http;
 import 'package:open_file/open_file.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+/// Current app version — keep in sync with pubspec.yaml (version: x.y.z+build).
+const String kAppVersion = '1.6.7+3';
+
+/// Compares versions like "1.6.7+3" or "4.0 Beta": main numbers first, then the
+/// +build number; a "Beta" counts as older than the same release.
+int _compareVersions(String a, String b) {
+  List<int> nums(String v) => RegExp(r'\d+').allMatches(v.split('+').first)
+      .map((m) => int.parse(m.group(0)!)).toList();
+  int build(String v) =>
+      v.contains('+') ? (int.tryParse(RegExp(r'\d+').firstMatch(v.split('+')[1])?.group(0) ?? '') ?? 0) : 0;
+  final na = nums(a), nb = nums(b);
+  for (int i = 0; i < max(na.length, nb.length); i++) {
+    final x = i < na.length ? na[i] : 0;
+    final y = i < nb.length ? nb[i] : 0;
+    if (x != y) return x.compareTo(y);
+  }
+  final ba = a.toLowerCase().contains('beta'), bb = b.toLowerCase().contains('beta');
+  if (ba != bb) return ba ? -1 : 1;
+  return build(a).compareTo(build(b));
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -187,7 +208,10 @@ class SecurityCodeService {
   static Future<void> _init() async {
     if (_inited) return;
     const android = AndroidInitializationSettings('notification_icon');
-    await _plugin.initialize(const InitializationSettings(android: android));
+    await _plugin.initialize(
+      const InitializationSettings(android: android),
+      onDidReceiveNotificationResponse: UploadNotifier.handleResponse,
+    );
     _inited = true;
   }
 
@@ -298,6 +322,7 @@ class TransferTask {
   bool cancelled = false;
   bool inBackground = false;
   Future<void> Function()? onBackground;
+  bool screenOpen = false; // is the progress screen currently visible?
   Uint8List? result;    // bytes of text files
 
   final Completer<void> _done = Completer<void>();
@@ -383,10 +408,24 @@ class UploadNotifier {
   static bool _inited = false;
   static final Map<int, int> _lastPct = {};
 
+  /// Set by the dashboard: opens the progress screen of the upload with [id].
+  static void Function(int id)? onOpen;
+
+  /// Notification tapped. The payload of a progress notification is its id.
+  static void handleResponse(NotificationResponse response) {
+    final id = int.tryParse(response.payload ?? '');
+    if (id != null) onOpen?.call(id);
+  }
+
+  static Future<void> init() => _init();
+
   static Future<void> _init() async {
     if (_inited) return;
     const android = AndroidInitializationSettings('notification_icon');
-    await _plugin.initialize(const InitializationSettings(android: android));
+    await _plugin.initialize(
+      const InitializationSettings(android: android),
+      onDidReceiveNotificationResponse: handleResponse,
+    );
     _inited = true;
   }
 
@@ -418,6 +457,7 @@ class UploadNotifier {
       'Uploading $name... $pct %',
       null,
       NotificationDetails(android: _details(progress: true, pct: pct)),
+      payload: id.toString(),
     );
   }
 
@@ -452,8 +492,15 @@ class _UploadProgressScreenState extends State<UploadProgressScreen> {
   @override
   void initState() {
     super.initState();
+    widget.task.screenOpen = true;
     // finished (or failed) while this screen is open -> close it
     widget.task.future.then((_) => _close(), onError: (_) => _close());
+  }
+
+  @override
+  void dispose() {
+    widget.task.screenOpen = false;
+    super.dispose();
   }
 
   void _close() {
@@ -1244,6 +1291,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   Future<void> _saveChain = Future.value();
 
+  // uploads that are still running, by notification id
+  final Map<int, TransferTask> _runningTasks = {};
+
   // Animation & Timers
   late AnimationController _refreshController;
   late AnimationController _logoSpinController;
@@ -1258,18 +1308,9 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
   bool _isLogoSpinning = false;
   Color _logoColor = Colors.white;
 
-  // --- Version order for update checking ---
-  final List<String> _versionOrder = [
-    "1.0", "1.6.7+1", "1.6.7+2", "1.6.7+3", "2.0", "2.1", "2.4", "2.8", "3.0", "4.0 Beta", "4.5",
-    "4.7", "5.0", "6.0", "6.7", "7.0", "8.0", "9.0", "10.0"
-  ];
-
-  bool _isNewerVersion(String current, String latest) {
-    int currentIndex = _versionOrder.indexOf(current);
-    int latestIndex = _versionOrder.indexOf(latest);
-    if (currentIndex == -1 || latestIndex == -1) return false;
-    return latestIndex > currentIndex;
-  }
+  // --- Version comparison for update checking ---
+  bool _isNewerVersion(String current, String latest) =>
+      _compareVersions(latest, current) > 0;
 
   @override
   void initState() {
@@ -1280,6 +1321,10 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     _initializeAuth();
     _loadData();
 
+    // notification taps -> upload screen (initialised now so the tap callback exists)
+    UploadNotifier.onOpen = _openUploadScreen;
+    UploadNotifier.init().catchError((_) {});
+
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkFirstLaunch());
 
     _syncTimer = Timer.periodic(const Duration(minutes: 10), (timer) {
@@ -1289,6 +1334,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   @override
   void dispose() {
+    UploadNotifier.onOpen = null;
     _refreshController.dispose();
     _syncTimer?.cancel();
     _logoSpinController.dispose();
@@ -1408,7 +1454,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   // --- UPDATE CHECK (REAL) ---
   Future<void> _checkForUpdates() async {
-    const currentVersion = "1.6.7";
+    const currentVersion = kAppVersion;
     const pageUrl = "https://fish-gang.netlify.app/appstore%E2%89%A0data=html_runner";
 
     try {
@@ -1417,17 +1463,26 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
       if (response.statusCode == 200) {
         final versionRegex = RegExp(r'<span id="fg-version"[^>]*>(.*?)</span>');
         final versionMatch = versionRegex.firstMatch(response.body);
-        final linkRegex = RegExp(r"'1\.6\.7': '([^']+)'");
-        final linkMatch = linkRegex.firstMatch(response.body);
 
-        if (versionMatch != null && linkMatch != null) {
+        if (versionMatch != null) {
           final latestVersion = versionMatch.group(1)!.trim();
-          final downloadUrl = linkMatch.group(1)!;
 
-          if (_isNewerVersion(currentVersion, latestVersion)) {
-            _showUpdateDialog(downloadUrl, latestVersion);
-          } else {
+          // download link: the entry for the latest version, then for the
+          // current one, then the first .apk URL on the page
+          String? downloadUrl;
+          for (final key in [latestVersion, currentVersion]) {
+            final m = RegExp("['\"]${RegExp.escape(key)}['\"]\\s*:\\s*['\"]([^'\"]+)['\"]")
+                .firstMatch(response.body);
+            if (m != null) { downloadUrl = m.group(1); break; }
+          }
+          downloadUrl ??= RegExp(r"""https?://[^'"\s]+\.apk""").firstMatch(response.body)?.group(0);
+
+          if (!_isNewerVersion(currentVersion, latestVersion)) {
             _showUpToDateDialog();
+          } else if (downloadUrl == null) {
+            _showErrorDialog("Version $latestVersion is available, but no download link was found.");
+          } else {
+            _showUpdateDialog(downloadUrl, latestVersion);
           }
         } else {
           _showErrorDialog("Could not find version info.");
@@ -1555,14 +1610,44 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("🛠️ Build Info", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Column(
+          children: [
+            Image.network(
+              'https://i.postimg.cc/44BvYKKb/1771592172406.png',
+              height: 60,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Column(
+                  children: [
+                    Text(
+                      "Fish Gang Co.",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.linkBlue,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "(Image failed to load)",
+                      style: TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            const Text("🛠️ Build Information", style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildInfoRow("📱", "App Name",    "HTML Runner"),
-              _buildInfoRow("🔢", "Version",     "1.6.7+3"),
+              _buildInfoRow("🔢", "Version",     kAppVersion),
               _buildInfoRow("📝", "Lines",       "5059 lines"),
               _buildInfoRow("🎨", "UI Style",    "Holo Inspired"),
               _buildInfoRow("💚", "Framework",   "Flutter/Dart"),
@@ -2095,6 +2180,16 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
 
   static const int _bigFileBytes = 1024 * 1024; // files above 1 MB get the progress screen
 
+  /// Notification tapped: bring the upload's progress screen back.
+  void _openUploadScreen(int id) {
+    final task = _runningTasks[id];
+    if (task == null || !mounted || task.screenOpen) return;
+    task.inBackground = false; // visible again; "Run in Background" re-enables it
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => UploadProgressScreen(task: task),
+    ));
+  }
+
   /// Shows the progress screen for [task] and keeps the background
   /// notification in sync. Completes when the task finishes, fails or is
   /// cancelled.
@@ -2102,6 +2197,7 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     final name = task.fileName;
     final notifId = 6000 + (DateTime.now().millisecondsSinceEpoch % 90000).toInt();
     bool notifOk = false;
+    _runningTasks[notifId] = task; // lets a notification tap find this upload
 
     void onProgress() {
       if (task.inBackground && notifOk) {
@@ -2129,10 +2225,12 @@ class _MainDashboardState extends State<MainDashboard> with TickerProviderStateM
     try {
       await task.future;
     } catch (_) {
+      _runningTasks.remove(notifId);
       task.progress.removeListener(onProgress);
       if (notifOk) await UploadNotifier.cancel(notifId);
       rethrow;
     }
+    _runningTasks.remove(notifId);
     task.progress.removeListener(onProgress);
     if (task.inBackground && notifOk) {
       if (task.cancelled) {
@@ -4558,8 +4656,13 @@ class _IDEEditorScreenState extends State<IDEEditorScreen> {
                             expands: true,
                             textAlignVertical: TextAlignVertical.top, // code starts at the top, next to line 1
                             style: _codeStyle,
+                            cursorColor: Colors.white,
                             decoration: const InputDecoration(
+                              // the light theme's input fill (white) made white text invisible
+                              filled: false,
                               border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
                               contentPadding: EdgeInsets.symmetric(horizontal: hPad),
                             ),
                           ),
@@ -4804,6 +4907,12 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
     });
   }
 
+  void _copyConsole() {
+    final text = _consoleLines.map((l) => l.text).join('\n');
+    Clipboard.setData(ClipboardData(text: text));
+    Fluttertoast.showToast(msg: 'Console copied');
+  }
+
   Future<void> _runConsoleInput() async {
     final code = _consoleInput.text.trim();
     if (code.isEmpty) return;
@@ -4884,6 +4993,22 @@ class _WebRunnerScreenState extends State<WebRunnerScreen>
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
+                  InkWell(
+                    onTap: _copyConsole,
+                    child: Container(
+                      height: 16,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      alignment: Alignment.center,
+                      decoration: _w95Raised(),
+                      child: const Text('Copy',
+                          style: TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                              height: 1.0)),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   InkWell(
                     onTap: () => setState(() => _showConsole = false),
                     child: Container(
